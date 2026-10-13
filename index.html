@@ -1,0 +1,570 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>株価レンジ予測(対数正規モデル)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:#EEF1F4; --surface:#FFFFFF; --ink:#16202B; --muted:#5B6877; --line:#D5DBE2;
+  --band:#0F6E8C; --hist:#6B7785; --loss:#B3412F; --gain:#1E7A52; --field:#F7F9FA;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg:#0F161D; --surface:#17212B; --ink:#E6ECF2; --muted:#93A1B1; --line:#2A3744;
+    --band:#4FB3D1; --hist:#8B98A7; --loss:#E5826F; --gain:#5CC59A; --field:#101921;
+  }
+}
+:root[data-theme="dark"] {
+  --bg:#0F161D; --surface:#17212B; --ink:#E6ECF2; --muted:#93A1B1; --line:#2A3744;
+  --band:#4FB3D1; --hist:#8B98A7; --loss:#E5826F; --gain:#5CC59A; --field:#101921;
+}
+html { scroll-padding-top:env(safe-area-inset-top,0px); }
+*,*::before,*::after { box-sizing:inherit; }
+body {
+  margin:0; background:var(--bg); color:var(--ink);
+  font-family:"IBM Plex Sans JP","Hiragino Sans","Noto Sans JP","Yu Gothic",system-ui,sans-serif;
+  font-size:15px; line-height:1.6; font-variant-numeric:tabular-nums;
+}
+.wrap { max-width:1180px; margin:0 auto; padding:20px 16px 40px; }
+header h1 { font-size:22px; line-height:1.3; margin:0 0 4px; font-weight:700; }
+header p { margin:0 0 18px; color:var(--muted); font-size:14px; }
+.grid { display:grid; grid-template-columns:320px minmax(0,1fr); gap:16px; align-items:start; }
+@media (max-width:900px){ .grid { grid-template-columns:minmax(0,1fr); } }
+.panel { background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:16px; }
+.panel + .panel { margin-top:16px; }
+h2 { font-size:15px; margin:0 0 12px; font-weight:700; }
+label { display:block; font-size:13px; color:var(--muted); margin:12px 0 4px; }
+label:first-of-type { margin-top:0; }
+input[type=number], input[type=text], select, textarea {
+  width:100%; font:inherit; color:var(--ink); background:var(--field);
+  border:1px solid var(--line); border-radius:6px; padding:8px 10px;
+}
+textarea { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:13px; height:130px; resize:vertical; line-height:1.5; }
+input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible, input[type=range]:focus-visible {
+  outline:2px solid var(--band); outline-offset:2px;
+}
+.row2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+.btns { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+button {
+  font:inherit; font-size:13px; color:var(--ink); background:transparent;
+  border:1px solid var(--line); border-radius:6px; padding:6px 10px; cursor:pointer;
+}
+button:hover { border-color:var(--band); }
+button[aria-pressed=true] { background:var(--band); border-color:var(--band); color:#fff; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) button[aria-pressed=true] { color:#0F161D; } }
+.hint { font-size:12.5px; color:var(--muted); margin:8px 0 0; }
+.hint b { color:var(--ink); font-weight:600; }
+.warn { color:var(--loss); }
+.sep { height:1px; background:var(--line); margin:16px 0; border:0; }
+.ctl { display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-bottom:8px; }
+.ctl .grow { flex:1 1 220px; display:flex; align-items:center; gap:10px; }
+.ctl input[type=range] { flex:1; accent-color:var(--band); min-width:120px; }
+.ctl strong { min-width:4.6em; font-weight:700; }
+.seg { display:flex; gap:6px; }
+#chart { width:100%; touch-action:pan-y; cursor:ew-resize; user-select:none; -webkit-user-select:none; }
+#chart svg { display:block; width:100%; }
+.legend { display:flex; flex-wrap:wrap; gap:6px 16px; font-size:12.5px; color:var(--muted); margin-top:8px; }
+.legend span { display:inline-flex; align-items:center; gap:6px; }
+.sw { width:16px; height:10px; display:inline-block; border-radius:2px; background:var(--band); }
+.ln { width:18px; height:0; border-top:2px solid var(--ink); display:inline-block; }
+.ln.d { border-top:2px dashed var(--band); }
+.ln.h { border-top:2px solid var(--hist); }
+dl.stats { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; margin:0; }
+@media (max-width:640px){ dl.stats { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+dl.stats dt { font-size:12.5px; color:var(--muted); }
+dl.stats dd { margin:0; font-size:18px; font-weight:700; }
+.tw { overflow-x:auto; }
+table { border-collapse:collapse; width:100%; font-size:14px; }
+th, td { text-align:right; padding:8px 10px; border-bottom:1px solid var(--line); white-space:nowrap; vertical-align:top; }
+th:first-child, td:first-child { text-align:left; }
+thead th { font-weight:500; color:var(--muted); font-size:12.5px; }
+tbody tr:last-child td { border-bottom:0; }
+.lo { color:var(--loss); }
+.hi { color:var(--gain); }
+.dim { color:var(--muted); font-size:12.5px; }
+.empty { padding:40px 0; text-align:center; color:var(--muted); }
+.note { font-size:12.5px; color:var(--muted); line-height:1.7; }
+.note p { margin:0 0 6px; }
+code { display:block; margin:6px 0; padding:6px 8px; background:var(--field); border:1px solid var(--line); border-radius:6px; font-size:12px; word-break:break-all; user-select:all; -webkit-user-select:all; color:var(--ink); }
+.hint a { color:var(--band); }
+@media (prefers-reduced-motion: reduce){ * { transition:none !important; animation:none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>株価レンジ予測</h1>
+    <p>過去の株価から、1年先までの株価と元手の変動範囲を対数正規分布で予測します。</p>
+  </header>
+
+  <div class="grid">
+    <!-- 入力 -->
+    <aside>
+      <section class="panel" aria-labelledby="h-data">
+        <h2 id="h-data">1. 過去の株価データ</h2>
+        <label for="tk">銘柄コード</label>
+        <div style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center">
+          <input type="text" id="tk" placeholder="例: 7203 / AAPL" autocomplete="off" autocapitalize="characters" spellcheck="false">
+          <button type="button" id="fetch">1年分を取得</button>
+        </div>
+        <p class="hint" id="tkout">日本株は4桁コード(例 7203)、米国株はティッカー(例 AAPL)。取得すると下の欄に終値が入ります。</p>
+        <label for="data">終値を貼り付け(1行1件、または 日付,終値 のCSV)</label>
+        <textarea id="data" placeholder="2025-10-14,1012.5&#10;2025-10-15,1018.0&#10;..." spellcheck="false"></textarea>
+        <div class="row2">
+          <div>
+            <label for="freq">データの間隔</label>
+            <select id="freq">
+              <option value="252">日次</option>
+              <option value="52">週次</option>
+              <option value="12">月次</option>
+            </select>
+          </div>
+          <div>
+            <label for="order">並び順</label>
+            <select id="order">
+              <option value="auto">自動判定</option>
+              <option value="asc">古い順</option>
+              <option value="desc">新しい順</option>
+            </select>
+          </div>
+        </div>
+        <div class="btns"><button type="button" id="sample">サンプルデータを入れる</button><button type="button" id="clear">クリア</button></div>
+        <p class="hint" id="info"></p>
+      </section>
+
+      <section class="panel" aria-labelledby="h-param">
+        <h2 id="h-param">2. 予測パラメータ(年率)</h2>
+        <label for="s0">現在の株価</label>
+        <input type="number" id="s0" step="any" min="0" value="1000" inputmode="decimal">
+        <div class="row2">
+          <div>
+            <label for="mu">期待リターン μ (%)</label>
+            <input type="number" id="mu" step="0.1" value="7" inputmode="decimal">
+          </div>
+          <div>
+            <label for="sig">ボラティリティ σ (%)</label>
+            <input type="number" id="sig" step="0.1" min="0.1" value="20" inputmode="decimal">
+          </div>
+        </div>
+        <div class="btns"><button type="button" id="mu0">μ を 0% にする</button></div>
+        <p class="hint">データを貼ると自動で推定して入力されます。手で書き換えた値がそのまま予測に使われます。</p>
+        <hr class="sep">
+        <label for="cap">元手(円)</label>
+        <input type="number" id="cap" step="10000" min="0" value="1000000" inputmode="numeric">
+      </section>
+    </aside>
+
+    <!-- 結果 -->
+    <main>
+      <section class="panel" aria-labelledby="h-chart">
+        <h2 id="h-chart">予測チャート</h2>
+        <div class="ctl">
+          <div class="grow">
+            <label for="hz" style="margin:0">予測期間</label>
+            <input type="range" id="hz" min="1" max="12" step="1" value="12">
+            <strong id="hzv">1年後</strong>
+          </div>
+          <div class="seg" role="group" aria-label="縦軸">
+            <button type="button" id="ax-lin" aria-pressed="true">通常軸</button>
+            <button type="button" id="ax-log" aria-pressed="false">対数軸</button>
+          </div>
+        </div>
+        <div id="chart" role="img" aria-label="株価の予測レンジを示す扇形チャート"></div>
+        <div class="legend">
+          <span><i class="sw" style="opacity:.42"></i>±1σ(約68%)</span>
+          <span><i class="sw" style="opacity:.26"></i>±2σ(約95%)</span>
+          <span><i class="sw" style="opacity:.16"></i>±3σ(約99.7%)</span>
+          <span><i class="ln"></i>中央値</span>
+          <span><i class="ln d"></i>期待値(平均)</span>
+          <span><i class="ln h"></i>実績</span>
+        </div>
+        <p class="hint">チャートをなぞると予測期間を変更できます。</p>
+      </section>
+
+      <section class="panel" aria-labelledby="h-range">
+        <h2 id="h-range"><span id="rtitle">1年後</span>の変動範囲</h2>
+        <dl class="stats" id="stats"></dl>
+        <hr class="sep">
+        <div class="tw" id="rtable"></div>
+      </section>
+
+      <section class="panel" aria-labelledby="h-hz">
+        <h2 id="h-hz">期間別の元手レンジ</h2>
+        <div class="tw" id="htable"></div>
+      </section>
+
+      <section class="panel note" aria-labelledby="h-note">
+        <h2 id="h-note">モデルの前提と注意</h2>
+        <p>株価 S は S<sub>t</sub> = S<sub>0</sub>·exp(mt + σ√t·Z)、Z は標準正規分布、m = μ − σ²/2 とします(幾何ブラウン運動)。対数リターンが正規分布に従うため、株価は対数正規分布になり、下限は 0、上側に長い裾を持ちます。</p>
+        <p>kσ の範囲は S<sub>0</sub>·exp(mt ± kσ√t) です。確率は 1σ=68.27%、2σ=95.45%、3σ=99.73% です。元手の範囲は 元手 × S/S<sub>0</sub> で計算しています。</p>
+        <p>過去の平均リターンの推定誤差は大きく、データが短いほど不安定です。実際の株価は μ・σ が一定でなく、暴落など3σを超える動きも正規分布の想定より起こりやすいです。配当・手数料・税は考慮していません。投資判断の助言ではありません。</p>
+      </section>
+    </main>
+  </div>
+</div>
+
+<script>
+(function(){
+  var $ = function(id){ return document.getElementById(id); };
+  var state = { prices: [], log: false };
+  var COV = { 1:'68.3%', 2:'95.4%', 3:'99.7%' };
+  var nf0 = new Intl.NumberFormat('ja-JP',{maximumFractionDigits:0});
+  var nf2 = new Intl.NumberFormat('ja-JP',{maximumFractionDigits:2});
+  function fmtP(v){ return v>=1000 ? nf0.format(v) : nf2.format(v); }
+  function fmtC(v){ return nf0.format(Math.round(v))+'円'; }
+  function pct(v){ return (v>=0?'+':'')+(v*100).toFixed(1)+'%'; }
+  function hzLabel(h){ return h===12 ? '1年後' : h+'ヶ月後'; }
+
+  /* ---------- 数学 ---------- */
+  function erf(x){
+    var s = x<0?-1:1; x=Math.abs(x);
+    var t = 1/(1+0.3275911*x);
+    var y = 1-(((((1.061405429*t-1.453152027)*t)+1.421413741)*t-0.284496736)*t+0.254829592)*t*Math.exp(-x*x);
+    return s*y;
+  }
+  function Phi(z){ return 0.5*(1+erf(z/Math.SQRT2)); }
+
+  /* ---------- データ解析 ---------- */
+  function parsePrices(text, order){
+    var rows = [];
+    var lines = text.split(/\r?\n/);
+    for (var i=0;i<lines.length;i++){
+      var line = lines[i].trim();
+      if(!line) continue;
+      var delim = line.indexOf('\t')>=0 ? /\t/ : (line.indexOf(',')>=0 ? /,/ : /\s+/);
+      var parts = line.split(delim).map(function(s){ return s.trim().replace(/^["']|["']$/g,''); }).filter(Boolean);
+      var val = NaN;
+      for (var j=parts.length-1;j>=0;j--){
+        var t = parts[j].replace(/[¥$円,]/g,'');
+        if(/^-?\d+(\.\d+)?$/.test(t)){ val = parseFloat(t); break; }
+      }
+      if(!(val>0)) continue;
+      var d = NaN;
+      if(parts.length>1){ d = Date.parse(parts[0].replace(/\//g,'-')); }
+      rows.push({ v:val, d:d });
+    }
+    var reverse = false;
+    if(order==='desc') reverse = true;
+    else if(order==='auto' && rows.length>1){
+      var d0 = rows[0].d, d1 = rows[rows.length-1].d;
+      if(!isNaN(d0) && !isNaN(d1) && d0>d1) reverse = true;
+    }
+    var prices = rows.map(function(r){ return r.v; });
+    if(reverse) prices.reverse();
+    return prices;
+  }
+  function estimate(prices, f){
+    var r = [];
+    for (var i=1;i<prices.length;i++) r.push(Math.log(prices[i]/prices[i-1]));
+    var n = r.length;
+    var mean = r.reduce(function(a,b){return a+b;},0)/n;
+    var v = r.reduce(function(a,b){return a+(b-mean)*(b-mean);},0)/(n-1);
+    var sigma = Math.sqrt(v*f);
+    return { n:n, sigma:sigma, mu: mean*f + sigma*sigma/2, years:n/f };
+  }
+
+  /* ---------- パラメータ ---------- */
+  function getParams(){
+    var S0 = parseFloat($('s0').value), mu = parseFloat($('mu').value)/100, sig = parseFloat($('sig').value)/100;
+    var C = parseFloat($('cap').value);
+    if(!(S0>0) || !(sig>0) || isNaN(mu)) return null;
+    return { S0:S0, mu:mu, sig:sig, m: mu - sig*sig/2, C: (C>=0?C:0), f: parseInt($('freq').value,10) };
+  }
+  function band(p,k,t){ return p.S0*Math.exp(p.m*t + k*p.sig*Math.sqrt(t)); }
+
+  /* ---------- 再推定 ---------- */
+  function reestimate(){
+    var text = $('data').value;
+    var f = parseInt($('freq').value,10);
+    var info = $('info');
+    if(!text.trim()){
+      state.prices = [];
+      info.innerHTML = 'データ未入力です。右の値を手入力して予測できます。';
+      update(); return;
+    }
+    var prices = parsePrices(text, $('order').value);
+    state.prices = prices;
+    if(prices.length<3){
+      info.innerHTML = '<span class="warn">価格を3件以上入力してください。</span>';
+      update(); return;
+    }
+    var e = estimate(prices, f);
+    $('s0').value = +prices[prices.length-1].toFixed(4);
+    $('mu').value = (e.mu*100).toFixed(2);
+    $('sig').value = (e.sigma*100).toFixed(2);
+    var se = e.sigma/Math.sqrt(e.years);
+    var yrs = e.years>=1 ? e.years.toFixed(1)+'年分' : Math.round(e.years*12)+'ヶ月分';
+    var msg = '<b>'+e.n+'件</b>のリターン(約'+yrs+')から推定しました。年率リターンの推定誤差は約 <b>±'+(se*100).toFixed(1)+'%</b>(1標準誤差)です。';
+    if(e.years<3) msg += ' <span class="warn">データが短く、μ は特に不安定です。</span>';
+    info.innerHTML = msg;
+    update();
+  }
+
+  /* ---------- 表示 ---------- */
+  function renderTables(p){
+    var h = parseInt($('hz').value,10), t = h/12;
+    $('hzv').textContent = hzLabel(h);
+    $('rtitle').textContent = hzLabel(h);
+    var s = p.sig*Math.sqrt(t);
+    var med = p.S0*Math.exp(p.m*t);
+    var pLoss = Phi(-(p.m*t)/s);
+    $('stats').innerHTML =
+      '<div><dt>中央値(元手)</dt><dd>'+fmtC(p.C*Math.exp(p.m*t))+'</dd></div>'+
+      '<div><dt>期待値(元手)</dt><dd>'+fmtC(p.C*Math.exp(p.mu*t))+'</dd></div>'+
+      '<div><dt>元本割れの確率</dt><dd>'+(pLoss*100).toFixed(1)+'%</dd></div>'+
+      '<div><dt>期間σ(対数リターン)</dt><dd>'+(s*100).toFixed(1)+'%</dd></div>';
+
+    var rows = '<tr><td>中央値</td><td class="dim">50%</td><td>'+fmtP(med)+'</td><td>'+fmtC(p.C*med/p.S0)+'</td><td>'+pct(med/p.S0-1)+'</td></tr>';
+    [1,2,3].forEach(function(k){
+      var lo = band(p,-k,t), hi = band(p,k,t);
+      rows += '<tr><td>±'+k+'σ</td><td class="dim">'+COV[k]+'</td>'+
+        '<td><span class="lo">'+fmtP(lo)+'</span> 〜 <span class="hi">'+fmtP(hi)+'</span></td>'+
+        '<td><span class="lo">'+fmtC(p.C*lo/p.S0)+'</span> 〜 <span class="hi">'+fmtC(p.C*hi/p.S0)+'</span></td>'+
+        '<td><span class="lo">'+pct(lo/p.S0-1)+'</span> 〜 <span class="hi">'+pct(hi/p.S0-1)+'</span></td></tr>';
+    });
+    $('rtable').innerHTML = '<table><thead><tr><th>範囲</th><th>確率</th><th>株価</th><th>元手 '+fmtC(p.C)+' の場合</th><th>損益率</th></tr></thead><tbody>'+rows+'</tbody></table>';
+
+    var hs = [1,3,6,12];
+    var head = '<tr><th>元手の範囲</th>'+hs.map(function(x){ return '<th>'+(x===12?'1年後':x+'ヶ月後')+'</th>'; }).join('')+'</tr>';
+    var body = '<tr><td>中央値</td>'+hs.map(function(x){ return '<td>'+fmtC(p.C*Math.exp(p.m*x/12))+'</td>'; }).join('')+'</tr>';
+    [1,2,3].forEach(function(k){
+      body += '<tr><td>±'+k+'σ <span class="dim">'+COV[k]+'</span></td>'+hs.map(function(x){
+        var tt = x/12;
+        return '<td><div class="hi">'+fmtC(p.C*band(p,k,tt)/p.S0)+'</div><div class="lo">'+fmtC(p.C*band(p,-k,tt)/p.S0)+'</div></td>';
+      }).join('')+'</tr>';
+    });
+    $('htable').innerHTML = '<table><thead>'+head+'</thead><tbody>'+body+'</tbody></table>';
+  }
+
+  function niceTicks(lo,hi,n){
+    var span = hi-lo, raw = span/n, pow = Math.pow(10, Math.floor(Math.log10(raw)));
+    var f = raw/pow, step = (f<1.5?1:f<3?2:f<7?5:10)*pow, out = [];
+    for (var v=Math.ceil(lo/step)*step; v<=hi+1e-9; v+=step) out.push(v);
+    return out;
+  }
+
+  function draw(){
+    var box = $('chart'), W = box.clientWidth;
+    if(!W) return;
+    var p = getParams();
+    if(!p){ box.innerHTML = '<div class="empty">現在の株価とσを入力してください。</div>'; return; }
+    var H = Math.max(300, Math.min(460, Math.round(W*0.52)));
+    var mL = 58, mR = 14, mT = 14, mB = 28;
+    var hist = state.prices.slice(-p.f);
+    var hasHist = hist.length>1;
+    var xmin = hasHist ? -(hist.length-1)/p.f : 0;
+    var N = 60, ks = [3,2,1];
+    var pw = W-mL-mR, ph = H-mT-mB;
+    function xs(t){ return mL + (t-xmin)/(1-xmin)*pw; }
+
+    var lo = Infinity, hi = -Infinity;
+    for (var j=0;j<=N;j++){
+      var t = j/N;
+      lo = Math.min(lo, band(p,-3,t)); hi = Math.max(hi, band(p,3,t));
+    }
+    if(hasHist){ hist.forEach(function(v){ lo=Math.min(lo,v); hi=Math.max(hi,v); }); }
+    var pad = (hi-lo)*0.04;
+    lo = Math.max(lo-pad, lo*0.5); hi = hi+pad;
+    var L = state.log;
+    var a = L?Math.log(lo):lo, b = L?Math.log(hi):hi;
+    function ys(v){ return mT + (b-(L?Math.log(v):v))/(b-a)*ph; }
+
+    function path(pts){ return pts.map(function(q,i){ return (i?'L':'M')+q[0].toFixed(1)+' '+q[1].toFixed(1); }).join(''); }
+    function curve(fn){ var pts=[]; for (var j=0;j<=N;j++){ var t=j/N; pts.push([xs(t), ys(fn(t))]); } return pts; }
+
+    var svg = '<svg viewBox="0 0 '+W+' '+H+'" width="'+W+'" height="'+H+'" xmlns="http://www.w3.org/2000/svg" font-family="inherit">';
+    // 横グリッド
+    niceTicks(lo,hi,5).forEach(function(v){
+      var y = ys(v);
+      svg += '<line x1="'+mL+'" x2="'+(W-mR)+'" y1="'+y.toFixed(1)+'" y2="'+y.toFixed(1)+'" stroke="var(--line)" stroke-width="1"/>';
+      svg += '<text x="'+(mL-8)+'" y="'+(y+4).toFixed(1)+'" text-anchor="end" font-size="11" fill="var(--muted)">'+fmtP(v)+'</text>';
+    });
+    // x目盛
+    for (var q=-4;q<=4;q++){
+      var tq = q/4;
+      if(tq<xmin-1e-9 || tq>1+1e-9) continue;
+      var x = xs(tq);
+      var lab = q===0 ? '現在' : (q>0 ? '+'+(q*3)+'ヶ月' : (q*3)+'ヶ月');
+      var anchor = q===0 ? 'start' : (q===4 ? 'end' : 'middle');
+      if(q===0 && !hasHist) anchor = 'start';
+      else if(q===0) anchor = 'middle';
+      svg += '<line x1="'+x.toFixed(1)+'" x2="'+x.toFixed(1)+'" y1="'+(H-mB)+'" y2="'+(H-mB+4)+'" stroke="var(--muted)"/>';
+      svg += '<text x="'+x.toFixed(1)+'" y="'+(H-8)+'" text-anchor="'+anchor+'" font-size="11" fill="var(--muted)">'+lab+'</text>';
+    }
+    // 帯
+    var ops = { 3:0.16, 2:0.26, 1:0.42 };
+    ks.forEach(function(k){
+      var up = curve(function(t){ return band(p,k,t); });
+      var dn = curve(function(t){ return band(p,-k,t); }).reverse();
+      svg += '<path d="'+path(up.concat(dn))+'Z" fill="var(--band)" fill-opacity="'+ops[k]+'"/>';
+    });
+    // 実績
+    if(hasHist){
+      var hp = hist.map(function(v,i){ return [xs(-(hist.length-1-i)/p.f), ys(v)]; });
+      hp.push([xs(0), ys(p.S0)]);
+      svg += '<path d="'+path(hp)+'" fill="none" stroke="var(--hist)" stroke-width="1.6" stroke-linejoin="round"/>';
+    }
+    // 期待値・中央値
+    svg += '<path d="'+path(curve(function(t){ return p.S0*Math.exp(p.mu*t); }))+'" fill="none" stroke="var(--band)" stroke-width="1.6" stroke-dasharray="5 4"/>';
+    svg += '<path d="'+path(curve(function(t){ return p.S0*Math.exp(p.m*t); }))+'" fill="none" stroke="var(--ink)" stroke-width="2"/>';
+    // 現在値
+    svg += '<circle cx="'+xs(0).toFixed(1)+'" cy="'+ys(p.S0).toFixed(1)+'" r="4" fill="var(--ink)"/>';
+    // 予測期間マーカー
+    var h = parseInt($('hz').value,10), th = h/12, xh = xs(th);
+    svg += '<line x1="'+xh.toFixed(1)+'" x2="'+xh.toFixed(1)+'" y1="'+mT+'" y2="'+(H-mB)+'" stroke="var(--ink)" stroke-width="1" stroke-dasharray="3 3" opacity=".6"/>';
+    [-3,-2,-1,0,1,2,3].forEach(function(k){
+      var v = band(p,k,th);
+      svg += '<circle cx="'+xh.toFixed(1)+'" cy="'+ys(v).toFixed(1)+'" r="'+(k===0?3.5:2.8)+'" fill="'+(k===0?'var(--ink)':'var(--band)')+'"/>';
+    });
+    var up3 = ys(band(p,3,th));
+    var labAnchor = xh > W-110 ? 'end' : 'start', labX = labAnchor==='end' ? xh-8 : xh+8;
+    svg += '<text x="'+labX.toFixed(1)+'" y="'+Math.max(mT+10, up3-8).toFixed(1)+'" text-anchor="'+labAnchor+'" font-size="12" font-weight="700" fill="var(--ink)">'+hzLabel(h)+'</text>';
+    svg += '</svg>';
+    box.innerHTML = svg;
+    box._geo = { mL:mL, mR:mR, W:W, xmin:xmin };
+  }
+
+  function update(){
+    var p = getParams();
+    if(p){
+      renderTables(p);
+    } else {
+      $('stats').innerHTML = ''; $('rtable').innerHTML = '<div class="empty">現在の株価とσを入力してください。</div>'; $('htable').innerHTML = '';
+    }
+    draw();
+    save();
+  }
+
+  /* ---------- チャート操作 ---------- */
+  var dragging = false;
+  function setFromPointer(e){
+    var box = $('chart'), g = box._geo; if(!g) return;
+    var r = box.getBoundingClientRect();
+    var x = e.clientX - r.left;
+    var tt = (x - g.mL)/(g.W-g.mL-g.mR)*(1-g.xmin) + g.xmin;
+    var h = Math.round(tt*12);
+    h = Math.max(1, Math.min(12, h));
+    if(h !== parseInt($('hz').value,10)){ $('hz').value = h; update(); }
+  }
+  $('chart').addEventListener('pointerdown', function(e){ dragging = true; setFromPointer(e); });
+  window.addEventListener('pointermove', function(e){ if(dragging) setFromPointer(e); });
+  window.addEventListener('pointerup', function(){ dragging = false; });
+
+  /* ---------- 保存 ---------- */
+  function save(){
+    try{
+      localStorage.setItem('stockfc', JSON.stringify({
+        data:$('data').value, freq:$('freq').value, order:$('order').value,
+        s0:$('s0').value, mu:$('mu').value, sig:$('sig').value, cap:$('cap').value
+      }));
+    }catch(e){}
+  }
+  function load(){
+    try{
+      var s = JSON.parse(localStorage.getItem('stockfc')||'null');
+      if(!s) return false;
+      $('data').value = s.data||''; $('freq').value = s.freq||'252'; $('order').value = s.order||'auto';
+      if(s.s0) $('s0').value = s.s0; if(s.mu!==undefined && s.mu!=='') $('mu').value = s.mu;
+      if(s.sig) $('sig').value = s.sig; if(s.cap!==undefined && s.cap!=='') $('cap').value = s.cap;
+      return true;
+    }catch(e){ return false; }
+  }
+
+  /* ---------- サンプル ---------- */
+  function sampleData(){
+    var seed = 20261013;
+    function rnd(){ seed |= 0; seed = seed + 0x6D2B79F5 | 0; var t = Math.imul(seed ^ seed>>>15, 1|seed); t = t + Math.imul(t ^ t>>>7, 61|t) ^ t; return ((t ^ t>>>14)>>>0)/4294967296; }
+    function gauss(){ var u=0,v=0; while(!u) u=rnd(); v=rnd(); return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v); }
+    var n = 504, mu = 0.08, sg = 0.22, dt = 1/252, price = 1000, out = [];
+    var d = new Date(2026,9,13), dates = [];
+    while(dates.length<n){ var w = d.getDay(); if(w!==0 && w!==6) dates.push(new Date(d)); d.setDate(d.getDate()-1); }
+    dates.reverse();
+    dates.forEach(function(dt0, i){
+      if(i>0) price *= Math.exp((mu-sg*sg/2)*dt + sg*Math.sqrt(dt)*gauss());
+      var m = String(dt0.getMonth()+1).padStart(2,'0'), da = String(dt0.getDate()).padStart(2,'0');
+      out.push(dt0.getFullYear()+'-'+m+'-'+da+','+price.toFixed(2));
+    });
+    return out.join('\n');
+  }
+
+  /* ---------- イベント ---------- */
+  $('data').addEventListener('input', reestimate);
+  $('freq').addEventListener('change', reestimate);
+  $('order').addEventListener('change', reestimate);
+  ['s0','mu','sig','cap'].forEach(function(id){ $(id).addEventListener('input', update); });
+  $('hz').addEventListener('input', update);
+  $('mu0').addEventListener('click', function(){ $('mu').value = 0; update(); });
+  $('sample').addEventListener('click', function(){
+    $('freq').value = '252'; $('order').value = 'auto';
+    $('data').value = sampleData();
+    $('info').innerHTML = '※サンプルは乱数で生成した架空のデータです。';
+    reestimate();
+    var cur = $('info').innerHTML;
+    $('info').innerHTML = '<span class="warn">サンプル(乱数で生成した架空データ)</span><br>' + cur;
+  });
+  $('clear').addEventListener('click', function(){ $('data').value=''; reestimate(); });
+  $('ax-lin').addEventListener('click', function(){ state.log=false; $('ax-lin').setAttribute('aria-pressed','true'); $('ax-log').setAttribute('aria-pressed','false'); draw(); });
+  $('ax-log').addEventListener('click', function(){ state.log=true; $('ax-log').setAttribute('aria-pressed','true'); $('ax-lin').setAttribute('aria-pressed','false'); draw(); });
+
+  if(typeof ResizeObserver !== 'undefined'){ new ResizeObserver(function(){ draw(); }).observe($('chart')); }
+  else window.addEventListener('resize', draw);
+
+  function esc(t){ return String(t).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+  function normSymbol(raw){
+    var c = raw.trim().toUpperCase();
+    if(/\.T$/.test(c)) return c;
+    if(/^[0-9]{4}$|^[0-9]{3}[A-Z]$/.test(c)) return c+'.T';
+    return c;
+  }
+  var fetching = false;
+  async function fetchPrices(){
+    if(fetching) return;
+    var out = $('tkout'), sym = normSymbol($('tk').value);
+    if(!/^[0-9A-Z.\-^=]{1,12}$/.test(sym)){ out.textContent = '英数字の銘柄コードを入力してください。'; return; }
+    fetching = true; $('fetch').disabled = true; out.textContent = '取得中…';
+    try{
+      var res = await fetch('/.netlify/functions/prices?symbol='+encodeURIComponent(sym));
+      var j = null;
+      try{ j = await res.json(); }catch(e){}
+      if(!res.ok || !j || !j.prices || j.prices.length<3) throw new Error((j && j.error) || ('HTTP '+res.status));
+      $('freq').value = '252'; $('order').value = 'asc';
+      $('data').value = j.prices.map(function(r){ return r.date+','+r.close; }).join('\n');
+      reestimate();
+      var name = j.name ? j.name+'('+sym+')' : sym;
+      $('info').innerHTML = '<b>'+esc(name)+'</b> の終値 '+j.prices.length+'件を取得しました(取得元: '+esc(j.source)+')。<br>' + $('info').innerHTML;
+      out.textContent = '';
+    }catch(e){
+      out.textContent = '取得できませんでした: '+e.message+'(下の欄に貼り付けても使えます)';
+    }finally{
+      fetching = false; $('fetch').disabled = false;
+    }
+  }
+  $('fetch').addEventListener('click', fetchPrices);
+  $('tk').addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); fetchPrices(); } });
+
+  /* ---------- 起動 ---------- */
+  var restored = load();
+  if(restored && $('data').value.trim()){
+    var keep = { s0:$('s0').value, mu:$('mu').value, sig:$('sig').value };
+    state.prices = parsePrices($('data').value, $('order').value);
+    var e = state.prices.length>=3 ? estimate(state.prices, parseInt($('freq').value,10)) : null;
+    if(e){
+      var se = e.sigma/Math.sqrt(e.years);
+      $('info').innerHTML = '<b>'+e.n+'件</b>のリターンから推定。年率リターンの推定誤差は約 <b>±'+(se*100).toFixed(1)+'%</b>(1標準誤差)です。';
+    }
+    update();
+  } else {
+    $('info').innerHTML = 'データ未入力です。下の値を手入力するか、サンプルで動作を確認できます。';
+    update();
+  }
+})();
+</script>
+</body>
+</html>
