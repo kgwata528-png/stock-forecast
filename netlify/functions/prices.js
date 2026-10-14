@@ -8,16 +8,41 @@ const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
 const DAY = 86400000;
 const MAX_SPAN = 10 * 366 * DAY + 7 * DAY;
 
+// Yahoo は最近の株式分割を終値に反映していないことがある。
+// 分割日の前後で、値動きが分割比率に近い(=未調整)ときだけ、分割前の終値を比率で割る
+// (tools/screen.mjs にも同じ処理あり)
+function adjustSplits(ts, closes, splits) {
+  Object.values(splits || {}).forEach((s) => {
+    const ratio = s.numerator / s.denominator;
+    if (!(ratio > 0) || ratio === 1) return;
+    const k = ts.findIndex((t) => t >= s.date);
+    if (k < 0) return;
+    // 分割の日付と実際に値が飛ぶ日は1日ほどずれることがあるので、前後数日から比率に最も近い飛びを探す
+    let best = -1, bestJump = 1;
+    for (let j = Math.max(1, k - 3); j <= Math.min(closes.length - 1, k + 2); j++) {
+      let a = j - 1;
+      while (a >= 0 && !(closes[a] > 0)) a--;
+      if (a < 0 || !(closes[j] > 0)) continue;
+      const jump = closes[a] / closes[j];
+      if (best < 0 || Math.abs(Math.log(jump / ratio)) < Math.abs(Math.log(bestJump / ratio))) { best = j; bestJump = jump; }
+    }
+    if (best > 0 && Math.abs(Math.log(bestJump / ratio)) < Math.abs(Math.log(bestJump))) {
+      for (let i = 0; i < best; i++) if (closes[i] > 0) closes[i] /= ratio;
+    }
+  });
+}
+
 async function fromYahoo(sym, from, to) {
   const p1 = Math.floor((Date.parse(from) - DAY) / 1000), p2 = Math.floor((Date.parse(to) + 2 * DAY) / 1000);
-  const url = 'https://query1.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(sym) + '?period1=' + p1 + '&period2=' + p2 + '&interval=1d';
+  const url = 'https://query1.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(sym) + '?period1=' + p1 + '&period2=' + p2 + '&interval=1d&events=split';
   const res = await fetch(url, { headers: { 'User-Agent': UA, Accept: 'application/json' } });
   if (res.status === 404) throw new Error('銘柄が見つかりません');
   if (!res.ok) throw new Error('Yahoo HTTP ' + res.status);
   const j = await res.json();
   const r = j && j.chart && j.chart.result && j.chart.result[0];
   if (!r || !r.timestamp) throw new Error('Yahoo: データなし');
-  const closes = r.indicators.quote[0].close;
+  const closes = r.indicators.quote[0].close.slice();
+  adjustSplits(r.timestamp, closes, r.events && r.events.splits);
   const off = (r.meta && r.meta.gmtoffset) || 0;
   const prices = [];
   r.timestamp.forEach((ts, i) => {

@@ -91,6 +91,12 @@ th, td { text-align:right; padding:8px 10px; border-bottom:1px solid var(--line)
 th:first-child, td:first-child { text-align:left; }
 thead th { font-weight:500; color:var(--muted); font-size:12.5px; }
 tbody tr:last-child td { border-bottom:0; }
+tr.clk { cursor:pointer; }
+tr.clk:hover td, tr.clk:focus-visible td { background:var(--field); }
+tr.clk:focus-visible { outline:2px solid var(--band); outline-offset:-2px; }
+.filters { display:flex; flex-wrap:wrap; gap:8px 16px; align-items:center; margin-bottom:8px; }
+.filters label { display:inline-flex; gap:6px; align-items:center; font-size:13px; }
+.filters select { width:auto; padding:5px 8px; font-size:13px; }
 .lo { color:var(--loss); }
 .hi { color:var(--gain); }
 .dim { color:var(--muted); font-size:12.5px; }
@@ -249,6 +255,25 @@ code { display:block; margin:6px 0; padding:6px 8px; background:var(--field); bo
         <dl class="stats" id="btstats"></dl>
         <hr class="sep">
         <div class="tw" id="bttable"></div>
+      </section>
+
+      <section class="panel" aria-labelledby="h-sc" id="sc">
+        <h2 id="h-sc">下がりすぎ銘柄(1年前の予測と比べて)</h2>
+        <div class="filters">
+          <label class="dim" style="margin:0">しきい値
+            <select id="sc-th"><option value="-1.5">−1.5σ 以下</option><option value="-2" selected>−2σ 以下</option><option value="-3">−3σ 以下</option></select>
+          </label>
+          <label class="dim" style="margin:0">市場
+            <select id="sc-mk"><option value="">すべて</option><option>プライム</option><option>スタンダード</option><option>グロース</option></select>
+          </label>
+          <div class="seg" role="group" aria-label="判定に使うμ">
+            <button type="button" id="sc-est" aria-pressed="true">μ 当時の推定値</button>
+            <button type="button" id="sc-zero" aria-pressed="false">μ 0%</button>
+          </div>
+        </div>
+        <p class="hint" id="scinfo">読み込み中…</p>
+        <div class="tw" id="sctable"></div>
+        <p class="hint">東証上場の全銘柄について、1年前より前のデータで推定した μ・σ から1年前時点の予測を作り、今の株価がその分布の何σの位置かを計算しています(上の「予測の検証」と同じ考え方)。GitHub Actions で平日の夕方に自動更新します。行を選ぶとその銘柄を読み込みます。「μ 当時の推定値」は前年に大きく上がった銘柄ほど判定が厳しくなるので、値下がりそのものを見たいときは「μ 0%」がおすすめです。</p>
       </section>
 
       <section class="panel note" aria-labelledby="h-note">
@@ -887,6 +912,51 @@ code { display:block; margin:6px 0; padding:6px 8px; background:var(--field); bo
     }
   }
   $('fetch').addEventListener('click', function(){ closeSugg(); fetchPrices(); });
+
+  /* ---------- 下がりすぎ銘柄 ---------- */
+  var sc = { data: null, zero: false, loading: false };
+  function loadScreen(){
+    if(sc.loading) return;
+    sc.loading = true;
+    fetch('screen.json', { cache: 'no-cache' }).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+      .then(function(j){ sc.data = j; renderScreen(); })
+      .catch(function(e){ $('scinfo').textContent = '一覧を読み込めませんでした('+e.message+')。'; });
+  }
+  function renderScreen(){
+    var j = sc.data; if(!j) return;
+    var th = parseFloat($('sc-th').value), mk = $('sc-mk').value, key = sc.zero ? 'z0' : 'z';
+    var rows = j.items.filter(function(x){ return x[key]<=th && (!mk || x.market===mk); });
+    rows.sort(function(a,b){ return a[key]-b[key]; });
+    var LIMIT = 200;
+    $('scinfo').innerHTML = '<b>'+esc(j.asof)+'</b> 終値時点 ・ '+j.count+'銘柄中 <b>'+rows.length+'銘柄</b>'+(rows.length>LIMIT ? '(下位'+LIMIT+'件を表示)' : '');
+    if(!rows.length){ $('sctable').innerHTML = '<div class="empty" style="padding:20px 0">該当する銘柄はありません。</div>'; return; }
+    $('sctable').innerHTML = '<table><thead><tr><th>銘柄</th><th>市場</th><th>1年前</th><th>現在</th><th>騰落率</th><th>当時の μ / σ</th><th>位置</th></tr></thead><tbody>'+
+      rows.slice(0, LIMIT).map(function(x){
+        return '<tr class="clk" tabindex="0" data-code="'+esc(x.code)+'"><td>'+esc(x.name)+' <span class="dim">'+esc(x.code)+'</span></td><td class="dim">'+esc(x.market)+'</td>'+
+          '<td>'+fmtP(x.base)+'</td><td>'+fmtP(x.price)+'</td><td class="'+(x.ret<0?'lo':'hi')+'">'+pct(x.ret)+'</td>'+
+          '<td class="dim">'+(x.mu*100).toFixed(0)+'% / '+(x.sig*100).toFixed(0)+'%</td><td class="lo"><b>'+x[key].toFixed(2)+'σ</b></td></tr>';
+      }).join('')+'</tbody></table>';
+  }
+  function openFromScreen(tr){
+    var code = tr.getAttribute('data-code');
+    var x = sc.data.items.filter(function(i){ return i.code===code; })[0];
+    if(!x) return;
+    if(state.span && state.span<2) setSpan(2);
+    pick({ kind:'yahoo', symbol: x.code+'.T', name: x.name });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+  $('sctable').addEventListener('click', function(e){ var tr = e.target.closest('tr[data-code]'); if(tr) openFromScreen(tr); });
+  $('sctable').addEventListener('keydown', function(e){ var tr = e.target.closest('tr[data-code]'); if(tr && (e.key==='Enter' || e.key===' ')){ e.preventDefault(); openFromScreen(tr); } });
+  $('sc-th').addEventListener('change', renderScreen);
+  $('sc-mk').addEventListener('change', renderScreen);
+  function setScMu(zero){ sc.zero = zero; $('sc-est').setAttribute('aria-pressed', String(!zero)); $('sc-zero').setAttribute('aria-pressed', String(zero)); renderScreen(); }
+  $('sc-est').addEventListener('click', function(){ setScMu(false); });
+  $('sc-zero').addEventListener('click', function(){ setScMu(true); });
+  // 画面に近づいたら読み込む(約700KB)
+  if(typeof IntersectionObserver !== 'undefined'){
+    var io = new IntersectionObserver(function(es){ if(es[0].isIntersecting){ io.disconnect(); loadScreen(); } }, { rootMargin: '400px' });
+    io.observe($('sc'));
+  } else loadScreen();
 
   /* ---------- 起動 ---------- */
   setSpan(2);

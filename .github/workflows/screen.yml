@@ -1,0 +1,51 @@
+# 平日の夕方(日本時間 17:30)に全上場銘柄の「1年前の予測から見た位置(σ)」を計算し、screen.json を更新する
+name: screen
+
+on:
+  schedule:
+    - cron: '30 8 * * 1-5'   # UTC 8:30 = JST 17:30
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: screen
+  cancel-in-progress: false
+
+jobs:
+  screen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # 上場銘柄一覧の更新(失敗しても前回の一覧で続行)
+      - name: Update stock list
+        continue-on-error: true
+        run: |
+          pip install openpyxl
+          python tools/update_stocks.py
+
+      - name: Screen
+        run: node tools/screen.mjs
+
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add screen.json stocks-jp.json
+          if git diff --cached --quiet; then
+            echo "変更なし"
+          else
+            git commit -m "screen: $(date -u +%Y-%m-%d) の計算結果を更新"
+            git push
+          fi
