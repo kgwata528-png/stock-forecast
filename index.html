@@ -94,6 +94,18 @@ tbody tr:last-child td { border-bottom:0; }
 .lo { color:var(--loss); }
 .hi { color:var(--gain); }
 .dim { color:var(--muted); font-size:12.5px; }
+.combo { position:relative; }
+#sugg { position:absolute; left:0; right:0; top:calc(100% + 4px); z-index:10; margin:0; padding:4px 0; list-style:none; max-height:340px; overflow-y:auto;
+  background:var(--surface); border:1px solid var(--line); border-radius:8px; box-shadow:0 6px 20px rgba(0,0,0,.12); }
+#sugg li { padding:6px 10px; cursor:pointer; line-height:1.4; }
+#sugg li[aria-selected=true], #sugg li:hover { background:var(--field); }
+#sugg li .nm { display:block; font-size:14px; }
+#sugg li .meta { display:block; font-size:12px; color:var(--muted); }
+#sugg li.msg { cursor:default; color:var(--muted); font-size:12.5px; }
+#sugg li.msg:hover { background:transparent; }
+.period { display:grid; grid-template-columns:minmax(0,1fr) auto minmax(0,1fr); gap:6px; align-items:center; }
+input[type=date] { width:100%; font:inherit; font-size:14px; color:var(--ink); background:var(--field); border:1px solid var(--line); border-radius:6px; padding:7px 8px; }
+#spans button { padding:4px 10px; }
 .empty { padding:40px 0; text-align:center; color:var(--muted); }
 .note { font-size:12.5px; color:var(--muted); line-height:1.7; }
 .note p { margin:0 0 6px; }
@@ -114,12 +126,21 @@ code { display:block; margin:6px 0; padding:6px 8px; background:var(--field); bo
     <aside>
       <section class="panel" aria-labelledby="h-data">
         <h2 id="h-data">1. 過去の株価データ</h2>
-        <label for="tk">銘柄コード</label>
-        <div style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center">
-          <input type="text" id="tk" placeholder="例: 7203 / AAPL" autocomplete="off" autocapitalize="characters" spellcheck="false">
-          <button type="button" id="fetch">2年分を取得</button>
+        <label for="tk">銘柄名・コード</label>
+        <div class="combo">
+          <input type="text" id="tk" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="sugg" placeholder="例: トヨタ / 7203 / オルカン / 金 / ドル円" autocomplete="off" spellcheck="false">
+          <ul id="sugg" role="listbox" aria-label="候補" hidden></ul>
         </div>
-        <p class="hint" id="tkout">日本株は4桁コード(例 7203)、米国株はティッカー(例 AAPL)。取得すると下の欄に終値が入ります(2年分あると「予測の検証」も表示されます)。</p>
+        <p class="hint">日本株・ETF・投資信託・指数・金や原油・為替を名前かコードで探せます。候補を選ぶとすぐ取得します。</p>
+        <label for="from">期間</label>
+        <div class="period">
+          <input type="date" id="from" aria-label="開始日"><span class="dim">〜</span><input type="date" id="to" aria-label="終了日">
+        </div>
+        <div class="btns" role="group" aria-label="期間のプリセット" id="spans">
+          <button type="button" data-y="1">1年</button><button type="button" data-y="2">2年</button><button type="button" data-y="3">3年</button><button type="button" data-y="5">5年</button><button type="button" data-y="10">10年</button>
+        </div>
+        <div class="btns"><button type="button" id="fetch">この期間で取得</button></div>
+        <p class="hint" id="tkout">終値を最長10年分取得できます。1年より長く取ると「予測の検証」も表示されます。</p>
         <label for="data">終値を貼り付け(1行1件、または 日付,終値 のCSV)</label>
         <textarea id="data" placeholder="2025-10-14,1012.5&#10;2025-10-15,1018.0&#10;..." spellcheck="false"></textarea>
         <div class="row2">
@@ -169,7 +190,7 @@ code { display:block; margin:6px 0; padding:6px 8px; background:var(--field); bo
     <!-- 結果 -->
     <main>
       <section class="panel" aria-labelledby="h-chart">
-        <h2 id="h-chart">予測チャート</h2>
+        <h2 id="h-chart">予測チャート<span id="cname" class="dim" style="font-weight:500"></span></h2>
         <div class="ctl">
           <div class="grow">
             <label for="hz" style="margin:0">予測期間</label>
@@ -244,7 +265,7 @@ code { display:block; margin:6px 0; padding:6px 8px; background:var(--field); bo
 <script>
 (function(){
   var $ = function(id){ return document.getElementById(id); };
-  var state = { prices: [], dates: [], log: false, btZero: false };
+  var state = { prices: [], dates: [], log: false, btZero: false, sel: null, span: 2 };
   var COV = { 1:'68.3%', 2:'95.4%', 3:'99.7%' };
   var nf0 = new Intl.NumberFormat('ja-JP',{maximumFractionDigits:0});
   var nf2 = new Intl.NumberFormat('ja-JP',{maximumFractionDigits:2});
@@ -504,7 +525,7 @@ code { display:block; margin:6px 0; padding:6px 8px; background:var(--field); bo
   function renderBT(){
     var bt = backtest();
     if(!bt){
-      $('btinfo').innerHTML = '検証には「1年分 + それ以前のデータ」が必要です(日次なら約273件以上)。<b>2年分を取得</b>するか、2年分のデータを貼り付けてください。';
+      $('btinfo').innerHTML = '検証には「1年分 + それ以前のデータ」が必要です(日次なら約273件以上)。期間を<b>2年以上</b>にして取得するか、2年分以上のデータを貼り付けてください。';
       $('btchart').innerHTML = ''; $('btlegend').hidden = true; $('btstats').innerHTML = ''; $('bttable').innerHTML = '';
       return;
     }
@@ -616,7 +637,8 @@ code { display:block; margin:6px 0; padding:6px 8px; background:var(--field); bo
     try{
       localStorage.setItem('stockfc', JSON.stringify({
         data:$('data').value, freq:$('freq').value, order:$('order').value,
-        s0:$('s0').value, mu:$('mu').value, sig:$('sig').value, cap:$('cap').value
+        s0:$('s0').value, mu:$('mu').value, sig:$('sig').value, cap:$('cap').value,
+        sel:state.sel, span:state.span, from:$('from').value, to:$('to').value, cname:$('cname').textContent
       }));
     }catch(e){}
   }
@@ -627,6 +649,10 @@ code { display:block; margin:6px 0; padding:6px 8px; background:var(--field); bo
       $('data').value = s.data||''; $('freq').value = s.freq||'252'; $('order').value = s.order||'auto';
       if(s.s0) $('s0').value = s.s0; if(s.mu!==undefined && s.mu!=='') $('mu').value = s.mu;
       if(s.sig) $('sig').value = s.sig; if(s.cap!==undefined && s.cap!=='') $('cap').value = s.cap;
+      if(s.sel){ state.sel = s.sel; $('tk').value = s.sel.name || ''; }
+      if(s.cname) $('cname').textContent = s.cname;
+      if(s.span) setSpan(s.span);
+      else if(s.from && s.to){ $('from').value = s.from; $('to').value = s.to; state.span = 0; markSpan(); }
       return true;
     }catch(e){ return false; }
   }
@@ -658,55 +684,212 @@ code { display:block; margin:6px 0; padding:6px 8px; background:var(--field); bo
   $('sample').addEventListener('click', function(){
     $('freq').value = '252'; $('order').value = 'auto';
     $('data').value = sampleData();
+    state.sel = null; $('tk').value = ''; $('cname').textContent = ' — サンプル';
     $('info').innerHTML = '※サンプルは乱数で生成した架空のデータです。';
     reestimate();
     var cur = $('info').innerHTML;
     $('info').innerHTML = '<span class="warn">サンプル(乱数で生成した架空データ)</span><br>' + cur;
   });
-  $('clear').addEventListener('click', function(){ $('data').value=''; reestimate(); });
+  $('clear').addEventListener('click', function(){ $('data').value=''; state.sel = null; $('tk').value = ''; $('cname').textContent = ''; reestimate(); });
   $('ax-lin').addEventListener('click', function(){ state.log=false; $('ax-lin').setAttribute('aria-pressed','true'); $('ax-log').setAttribute('aria-pressed','false'); draw(); drawBT(); });
   $('ax-log').addEventListener('click', function(){ state.log=true; $('ax-log').setAttribute('aria-pressed','true'); $('ax-lin').setAttribute('aria-pressed','false'); draw(); drawBT(); });
   function setBtMu(zero){ state.btZero = zero; $('bt-est').setAttribute('aria-pressed', String(!zero)); $('bt-zero').setAttribute('aria-pressed', String(zero)); renderBT(); }
   $('bt-est').addEventListener('click', function(){ setBtMu(false); });
   $('bt-zero').addEventListener('click', function(){ setBtMu(true); });
 
-  if(typeof ResizeObserver !== 'undefined'){ var ro = new ResizeObserver(function(){ draw(); drawBT(); }); ro.observe($('chart')); ro.observe($('btchart')); }
+  if(typeof ResizeObserver !== 'undefined'){ var lastW = 0, ro = new ResizeObserver(function(){ var w = $('chart').clientWidth; if(w!==lastW){ lastW = w; draw(); drawBT(); } }); ro.observe($('chart')); }
   else window.addEventListener('resize', function(){ draw(); drawBT(); });
 
   function esc(t){ return String(t).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+  /* ---------- 銘柄検索 ---------- */
+  // 指数・商品・為替のプリセット(4番目は検索用の別名)
+  var PRESETS = [
+    ['^N225','日経平均株価','指数','にっけいへいきん 日経225 nikkei'],
+    ['1306.T','TOPIX連動ETF(1306)','ETF・TOPIXの代わり','トピックス topix'],
+    ['^DJI','NYダウ','指数','ダウ平均 dow'],
+    ['^GSPC','S&P500','指数','sp500 エスアンドピー'],
+    ['^IXIC','NASDAQ総合','指数','ナスダック nasdaq'],
+    ['^SOX','フィラデルフィア半導体指数(SOX)','指数','半導体 sox'],
+    ['GC=F','金(ゴールド)先物','先物・ドル建て','きん gold ゴールド'],
+    ['SI=F','銀(シルバー)先物','先物・ドル建て','ぎん silver シルバー'],
+    ['PL=F','プラチナ先物','先物・ドル建て','白金 platinum'],
+    ['HG=F','銅先物','先物・ドル建て','どう copper カッパー'],
+    ['CL=F','原油(WTI)先物','先物・ドル建て','げんゆ crude oil wti'],
+    ['NG=F','天然ガス先物','先物・ドル建て','natural gas'],
+    ['JPY=X','ドル円(USD/JPY)','為替','どるえん usdjpy 米ドル'],
+    ['EURJPY=X','ユーロ円(EUR/JPY)','為替','ゆーろえん eurjpy'],
+    ['GBPJPY=X','ポンド円(GBP/JPY)','為替','ぽんどえん gbpjpy'],
+    ['AUDJPY=X','豪ドル円(AUD/JPY)','為替','ごうどるえん オーストラリア audjpy'],
+    ['CNYJPY=X','人民元円(CNY/JPY)','為替','じんみんげん cnyjpy'],
+    ['EURUSD=X','ユーロドル(EUR/USD)','為替','ゆーろどる eurusd'],
+    ['BTC-JPY','ビットコイン(円)','暗号資産','びっとこいん bitcoin btc']
+  ].map(function(r){ return { kind:'yahoo', symbol:r[0], name:r[1], label:r[2], key: norm(r[1]), alias: norm(r[3]+' '+r[0]).split(' ') }; });
+
+  // 全角→半角・小文字・ひらがな→カタカナ にそろえて比較する
+  function norm(t){
+    return String(t).normalize('NFKC').toLowerCase().replace(/[ぁ-ゖ]/g, function(c){ return String.fromCharCode(c.charCodeAt(0)+0x60); }).replace(/\s+/g,' ').trim();
+  }
+  var jpList = null, jpLoading = null;
+  function loadJp(){
+    if(!jpLoading){
+      jpLoading = fetch('stocks-jp.json').then(function(r){ return r.json(); }).then(function(j){
+        jpList = j.items.map(function(x){ return { kind:'yahoo', symbol:x[0]+'.T', code:x[0], name:x[1], label:x[2], key:norm(x[1]) }; });
+      }).catch(function(){ jpList = []; });
+    }
+    return jpLoading;
+  }
+  function localMatches(q){
+    var nq = norm(q), out = [];
+    if(!nq) return PRESETS.slice(0, 8);
+    var code = nq.toUpperCase().replace(/\.T$/,'');
+    // 別名は先頭一致のみ(「きん」で「にっけいへいきん」が当たらないように)
+    PRESETS.forEach(function(x){
+      if(x.key.indexOf(nq)>=0 || x.alias.some(function(a){ return a.indexOf(nq)===0; })) out.push({ s:0, x:x });
+    });
+    (jpList||[]).forEach(function(x){
+      var s = x.code===code ? 0 : x.code.indexOf(code)===0 ? 1 : x.key.indexOf(nq)===0 ? 2 : x.key.indexOf(nq)>=0 ? 3 : -1;
+      if(s>=0) out.push({ s:s, x:x });
+    });
+    out.sort(function(a,b){ return a.s-b.s; });
+    return out.slice(0, 12).map(function(o){ return o.x; });
+  }
+
+  var sugg = { items: [], active: -1, seq: 0, timer: null };
+  function itemCode(x){ return x.kind==='fund' ? '' : (x.code || x.symbol); }
+  function renderSugg(msg){
+    var ul = $('sugg'), html = '';
+    sugg.items.forEach(function(x, i){
+      var code = itemCode(x);
+      html += '<li role="option" id="sg'+i+'" data-i="'+i+'" aria-selected="'+(i===sugg.active)+'"><span class="nm">'+esc(x.name)+'</span>'+
+        '<span class="meta">'+esc((code ? code+' ・ ' : '')+x.label)+'</span></li>';
+    });
+    if(msg) html += '<li class="msg" role="presentation">'+esc(msg)+'</li>';
+    ul.innerHTML = html;
+    var open = !!html;
+    ul.hidden = !open;
+    $('tk').setAttribute('aria-expanded', String(open));
+    if(sugg.active>=0) $('tk').setAttribute('aria-activedescendant', 'sg'+sugg.active); else $('tk').removeAttribute('aria-activedescendant');
+  }
+  function closeSugg(){ sugg.items = []; sugg.active = -1; sugg.seq++; clearTimeout(sugg.timer); renderSugg(); }
+  function onType(){
+    var q = $('tk').value.trim();
+    sugg.items = localMatches(q); sugg.active = -1;
+    clearTimeout(sugg.timer);
+    var my = ++sugg.seq;
+    // 4桁コードなど、日本株で確定できる入力は投信・海外の検索をしない
+    var remote = q.length>=2 && !/^[0-9]{3}[0-9A-Z]$/i.test(q);
+    renderSugg(remote ? '投資信託・海外銘柄を検索中…' : (q && !sugg.items.length ? '候補がありません' : ''));
+    if(!remote) return;
+    sugg.timer = setTimeout(function(){
+      fetch('/.netlify/functions/search?q='+encodeURIComponent(q)).then(function(r){ return r.json(); }).then(function(j){
+        if(my!==sugg.seq) return;
+        var seen = {};
+        sugg.items.forEach(function(x){ seen[x.symbol||x.fund] = 1; });
+        (j.items||[]).forEach(function(x){ if(!seen[x.symbol||x.fund]){ seen[x.symbol||x.fund] = 1; sugg.items.push(x); } });
+        renderSugg(sugg.items.length ? '' : '候補がありません');
+      }).catch(function(){ if(my===sugg.seq) renderSugg(sugg.items.length ? '' : '検索できませんでした'); });
+    }, 350);
+  }
+  function pick(x){
+    state.sel = { kind:x.kind, symbol:x.symbol, fund:x.fund, name:x.name };
+    $('tk').value = x.name;
+    closeSugg();
+    fetchPrices();
+  }
   function normSymbol(raw){
-    var c = raw.trim().toUpperCase();
+    var c = raw.trim().normalize('NFKC').toUpperCase();
     if(/\.T$/.test(c)) return c;
     if(/^[0-9]{4}$|^[0-9]{3}[A-Z]$/.test(c)) return c+'.T';
     return c;
   }
-  var fetching = false;
+  $('tk').addEventListener('focus', function(){ loadJp().then(function(){ if(document.activeElement===$('tk') && !state.sel) onType(); }); });
+  $('tk').addEventListener('input', function(){ state.sel = null; loadJp().then(onType); });
+  $('tk').addEventListener('blur', function(){ setTimeout(closeSugg, 150); });
+  $('tk').addEventListener('keydown', function(e){
+    var n = sugg.items.length;
+    if(e.key==='ArrowDown' && n){ e.preventDefault(); sugg.active = (sugg.active+1)%n; renderSugg(); }
+    else if(e.key==='ArrowUp' && n){ e.preventDefault(); sugg.active = (sugg.active-1+n)%n; renderSugg(); }
+    else if(e.key==='Escape'){ closeSugg(); }
+    else if(e.key==='Enter'){
+      e.preventDefault();
+      if(n && (sugg.active>=0 || !state.sel)) pick(sugg.items[Math.max(0, sugg.active)]);
+      else { closeSugg(); fetchPrices(); }
+    }
+  });
+  $('sugg').addEventListener('pointerdown', function(e){
+    var li = e.target.closest('li[data-i]');
+    if(!li) return;
+    e.preventDefault();
+    pick(sugg.items[+li.getAttribute('data-i')]);
+  });
+
+  /* ---------- 期間 ---------- */
+  function ymd(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+  function setSpan(y){
+    var to = new Date(), from = new Date(to);
+    from.setFullYear(to.getFullYear()-y);
+    $('from').value = ymd(from); $('to').value = ymd(to);
+    state.span = y;
+    markSpan();
+  }
+  function markSpan(){
+    [].forEach.call($('spans').querySelectorAll('button'), function(b){ b.setAttribute('aria-pressed', String(+b.getAttribute('data-y')===state.span)); });
+  }
+  (function(){
+    var today = new Date(), min = new Date(today);
+    min.setFullYear(today.getFullYear()-10);
+    ['from','to'].forEach(function(id){ $(id).max = ymd(today); $(id).min = ymd(min); });
+  })();
+  $('spans').addEventListener('click', function(e){
+    var b = e.target.closest('button[data-y]');
+    if(!b) return;
+    setSpan(+b.getAttribute('data-y'));
+    if(state.sel) fetchPrices(); else save();
+  });
+  ['from','to'].forEach(function(id){
+    $(id).addEventListener('change', function(){ state.span = 0; markSpan(); if(state.sel) fetchPrices(); else save(); });
+  });
+
+  /* ---------- 取得 ---------- */
+  var fetching = 0;
   async function fetchPrices(){
-    if(fetching) return;
-    var out = $('tkout'), sym = normSymbol($('tk').value);
-    if(!/^[0-9A-Z.\-^=]{1,12}$/.test(sym)){ out.textContent = '英数字の銘柄コードを入力してください。'; return; }
-    fetching = true; $('fetch').disabled = true; out.textContent = '取得中…';
+    var out = $('tkout'), sel = state.sel, from = $('from').value, to = $('to').value;
+    if(!sel){
+      var sym = normSymbol($('tk').value);
+      if(!/^[0-9A-Z.\-^=]{1,15}$/.test(sym)){ out.textContent = '候補から選ぶか、銘柄コードを入力してください。'; return; }
+      sel = { kind:'yahoo', symbol:sym, name:'' };
+    }
+    if(!from || !to || from>=to){ out.textContent = '期間は 開始日 < 終了日 で指定してください。'; return; }
+    var q = sel.kind==='fund' ? 'fund='+encodeURIComponent(sel.fund) : 'symbol='+encodeURIComponent(sel.symbol);
+    var my = ++fetching;
+    $('fetch').disabled = true; out.textContent = '取得中…';
     try{
-      var res = await fetch('/.netlify/functions/prices?symbol='+encodeURIComponent(sym)+'&range=2y');
+      var res = await fetch('/.netlify/functions/prices?'+q+'&from='+from+'&to='+to);
       var j = null;
       try{ j = await res.json(); }catch(e){}
+      if(my!==fetching) return;
       if(!res.ok || !j || !j.prices || j.prices.length<3) throw new Error((j && j.error) || ('HTTP '+res.status));
+      state.sel = sel;
+      if(!sel.name) sel.name = j.name || sel.symbol;
       $('freq').value = '252'; $('order').value = 'asc';
       $('data').value = j.prices.map(function(r){ return r.date+','+r.close; }).join('\n');
       reestimate();
-      var name = j.name ? j.name+'('+sym+')' : sym;
-      $('info').innerHTML = '<b>'+esc(name)+'</b> の終値 '+j.prices.length+'件を取得しました(取得元: '+esc(j.source)+')。<br>' + $('info').innerHTML;
+      var code = sel.kind==='fund' ? '投信' : sel.symbol;
+      $('cname').textContent = ' — '+sel.name;
+      $('info').innerHTML = '<b>'+esc(sel.name)+'</b>('+esc(code)+')の終値 '+j.prices.length+'件('+esc(j.prices[0].date)+'〜'+esc(j.prices[j.prices.length-1].date)+')を取得しました。取得元: '+esc(j.source)+
+        (j.currency && j.currency!=='JPY' ? '、通貨: '+esc(j.currency)+'(元手は円換算せず値動きの比率だけで計算)' : '')+'<br>' + $('info').innerHTML;
       out.textContent = '';
+      save();
     }catch(e){
-      out.textContent = '取得できませんでした: '+e.message+'(下の欄に貼り付けても使えます)';
+      if(my===fetching) out.textContent = '取得できませんでした: '+e.message+'(下の欄に貼り付けても使えます)';
     }finally{
-      fetching = false; $('fetch').disabled = false;
+      if(my===fetching) $('fetch').disabled = false;
     }
   }
-  $('fetch').addEventListener('click', fetchPrices);
-  $('tk').addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); fetchPrices(); } });
+  $('fetch').addEventListener('click', function(){ closeSugg(); fetchPrices(); });
 
   /* ---------- 起動 ---------- */
+  setSpan(2);
   var restored = load();
   if(restored && $('data').value.trim()){
     var keep = { s0:$('s0').value, mu:$('mu').value, sig:$('sig').value };
