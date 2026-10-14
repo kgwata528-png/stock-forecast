@@ -117,6 +117,60 @@ input[type=date] { width:100%; font:inherit; font-size:14px; color:var(--ink); b
 .note p { margin:0 0 6px; }
 code { display:block; margin:6px 0; padding:6px 8px; background:var(--field); border:1px solid var(--line); border-radius:6px; font-size:12px; word-break:break-all; user-select:all; -webkit-user-select:all; color:var(--ink); }
 .hint a { color:var(--band); }
+/* 範囲表示 lo 〜 hi */
+.rg i { font-style:normal; color:var(--muted); }
+.xs-only { display:none; }
+/* 折りたたみ */
+details.adv { margin-top:14px; border-top:1px solid var(--line); padding-top:10px; }
+details.adv > summary { cursor:pointer; font-size:13px; color:var(--muted); list-style:none; display:flex; align-items:center; gap:6px; min-height:32px; }
+details.adv > summary::-webkit-details-marker { display:none; }
+details.adv > summary::before { content:'▸'; transition:transform .15s; }
+details.adv[open] > summary::before { transform:rotate(90deg); }
+/* スマホ用の下部タブ */
+.tabbar { display:none; }
+/* 表の1列目を固定(横スクロール時) */
+.tw th:first-child, .tw td:first-child { position:sticky; left:0; background:var(--surface); z-index:1; }
+tr.clk:hover td:first-child { background:var(--field); }
+
+@media (max-width:900px){
+  .wrap { padding:12px 10px calc(76px + env(safe-area-inset-bottom,0px)); }
+  header h1 { font-size:19px; }
+  header p { font-size:12.5px; margin-bottom:10px; }
+  /* 入力 → チャート → 結果 → パラメータ の順に並べ替える */
+  .grid { display:flex; flex-direction:column; gap:12px; }
+  aside, main { display:contents; }
+  .panel + .panel { margin-top:0; }
+  .panel { padding:14px 12px; border-radius:12px; min-width:0; }
+  #p-data { order:0; } #p-chart { order:1; } #p-range { order:2; } #p-param { order:3; }
+  #p-hz { order:4; } #p-bt { order:5; } #sc { order:6; } #p-note { order:7; }
+  /* iOS で入力時に拡大されないよう 16px 以上 */
+  input[type=number], input[type=text], input[type=date], select, textarea { font-size:16px; }
+  #tk { padding:11px 12px; }
+  button { min-height:38px; font-size:14px; }
+  #spans { display:grid; grid-template-columns:repeat(5,1fr); }
+  #spans button { padding:4px 0; }
+  .ctl { gap:10px; }
+  .ctl .seg { margin-left:auto; }
+  .filters select { font-size:16px; }
+  #sugg { max-height:55vh; }
+  #sugg li { padding:10px 12px; }
+  .tabbar { display:grid; grid-template-columns:repeat(4,1fr); position:fixed; left:0; right:0; bottom:0; z-index:20;
+    background:var(--surface); border-top:1px solid var(--line); padding:4px 4px env(safe-area-inset-bottom,0px); box-shadow:0 -4px 16px rgba(0,0,0,.06); }
+  .tabbar button { border:0; border-radius:8px; min-height:52px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; font-size:11.5px; color:var(--muted); background:transparent; }
+  .tabbar button svg { width:22px; height:22px; stroke:currentColor; fill:none; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+  .tabbar button[aria-current=true] { color:var(--band); background:transparent; }
+  html { scroll-padding-top:8px; }
+}
+@media (max-width:640px){
+  table { font-size:13.5px; }
+  th, td { padding:8px 6px; }
+  .xs-hide { display:none; }
+  .xs-only { display:block; }
+  .rg i { display:none; }
+  .rg span { display:block; }
+  dl.stats dd { font-size:16.5px; }
+  dl.stats dd.sm { font-size:14px; }
+}
 @media (prefers-reduced-motion: reduce){ * { transition:none !important; animation:none !important; } }
 </style>
 </head>
@@ -130,8 +184,8 @@ code { display:block; margin:6px 0; padding:6px 8px; background:var(--field); bo
   <div class="grid">
     <!-- 入力 -->
     <aside>
-      <section class="panel" aria-labelledby="h-data">
-        <h2 id="h-data">1. 過去の株価データ</h2>
+      <section class="panel" aria-labelledby="h-data" id="p-data">
+        <h2 id="h-data">銘柄と期間</h2>
         <label for="tk">銘柄名・コード</label>
         <div class="combo">
           <input type="text" id="tk" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="sugg" placeholder="例: トヨタ / 7203 / オルカン / 金 / ドル円" autocomplete="off" spellcheck="false">
@@ -147,6 +201,9 @@ code { display:block; margin:6px 0; padding:6px 8px; background:var(--field); bo
         </div>
         <div class="btns"><button type="button" id="fetch">この期間で取得</button></div>
         <p class="hint" id="tkout">終値を最長10年分取得できます。1年より長く取ると「予測の検証」も表示されます。</p>
+        <p class="hint" id="info"></p>
+        <details class="adv" id="adv">
+        <summary>データを貼り付け・サンプル</summary>
         <label for="data">終値を貼り付け(1行1件、または 日付,終値 のCSV)</label>
         <textarea id="data" placeholder="2025-10-14,1012.5&#10;2025-10-15,1018.0&#10;..." spellcheck="false"></textarea>
         <div class="row2">
@@ -168,11 +225,11 @@ code { display:block; margin:6px 0; padding:6px 8px; background:var(--field); bo
           </div>
         </div>
         <div class="btns"><button type="button" id="sample">サンプルデータを入れる</button><button type="button" id="clear">クリア</button></div>
-        <p class="hint" id="info"></p>
+        </details>
       </section>
 
-      <section class="panel" aria-labelledby="h-param">
-        <h2 id="h-param">2. 予測パラメータ(年率)</h2>
+      <section class="panel" aria-labelledby="h-param" id="p-param">
+        <h2 id="h-param">予測パラメータ(年率)と元手</h2>
         <label for="s0">現在の株価</label>
         <input type="number" id="s0" step="any" min="0" value="1000" inputmode="decimal">
         <div class="row2">
@@ -195,7 +252,7 @@ code { display:block; margin:6px 0; padding:6px 8px; background:var(--field); bo
 
     <!-- 結果 -->
     <main>
-      <section class="panel" aria-labelledby="h-chart">
+      <section class="panel" aria-labelledby="h-chart" id="p-chart">
         <h2 id="h-chart">予測チャート<span id="cname" class="dim" style="font-weight:500"></span></h2>
         <div class="ctl">
           <div class="grow">
@@ -220,19 +277,19 @@ code { display:block; margin:6px 0; padding:6px 8px; background:var(--field); bo
         <p class="hint">チャートをなぞると予測期間を変更できます。</p>
       </section>
 
-      <section class="panel" aria-labelledby="h-range">
+      <section class="panel" aria-labelledby="h-range" id="p-range">
         <h2 id="h-range"><span id="rtitle">1年後</span>の変動範囲</h2>
         <dl class="stats" id="stats"></dl>
         <hr class="sep">
         <div class="tw" id="rtable"></div>
       </section>
 
-      <section class="panel" aria-labelledby="h-hz">
+      <section class="panel" aria-labelledby="h-hz" id="p-hz">
         <h2 id="h-hz">期間別の元手レンジ</h2>
         <div class="tw" id="htable"></div>
       </section>
 
-      <section class="panel" aria-labelledby="h-bt">
+      <section class="panel" aria-labelledby="h-bt" id="p-bt">
         <h2 id="h-bt">予測の検証(1年前の予測 vs 実績)</h2>
         <div class="ctl">
           <span class="dim">検証に使う μ</span>
@@ -276,7 +333,7 @@ code { display:block; margin:6px 0; padding:6px 8px; background:var(--field); bo
         <p class="hint">東証上場の全銘柄について、1年前より前のデータで推定した μ・σ から1年前時点の予測を作り、今の株価がその分布の何σの位置かを計算しています(上の「予測の検証」と同じ考え方)。GitHub Actions で平日の夕方に自動更新します。行を選ぶとその銘柄を読み込みます。「μ 当時の推定値」は前年に大きく上がった銘柄ほど判定が厳しくなるので、値下がりそのものを見たいときは「μ 0%」がおすすめです。</p>
       </section>
 
-      <section class="panel note" aria-labelledby="h-note">
+      <section class="panel note" aria-labelledby="h-note" id="p-note">
         <h2 id="h-note">モデルの前提と注意</h2>
         <p>株価 S は S<sub>t</sub> = S<sub>0</sub>·exp(mt + σ√t·Z)、Z は標準正規分布、m = μ − σ²/2 とします(幾何ブラウン運動)。対数リターンが正規分布に従うため、株価は対数正規分布になり、下限は 0、上側に長い裾を持ちます。</p>
         <p>kσ の範囲は S<sub>0</sub>·exp(mt ± kσ√t) です。確率は 1σ=68.27%、2σ=95.45%、3σ=99.73% です。元手の範囲は 元手 × S/S<sub>0</sub> で計算しています。</p>
@@ -286,6 +343,13 @@ code { display:block; margin:6px 0; padding:6px 8px; background:var(--field); bo
     </main>
   </div>
 </div>
+
+<nav class="tabbar" aria-label="ページ内の移動">
+  <button type="button" data-go="p-data" aria-current="true"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>銘柄</button>
+  <button type="button" data-go="p-chart"><svg viewBox="0 0 24 24"><path d="M3 20h18"/><path d="M4 16l5-5 4 3 7-8"/></svg>予測</button>
+  <button type="button" data-go="p-bt"><svg viewBox="0 0 24 24"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9"/></svg>検証</button>
+  <button type="button" data-go="sc"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/><path d="M19 15v6M16.5 18.5L19 21l2.5-2.5"/></svg>下落一覧</button>
+</nav>
 
 <script>
 (function(){
@@ -398,15 +462,16 @@ code { display:block; margin:6px 0; padding:6px 8px; background:var(--field); bo
       '<div><dt>元本割れの確率</dt><dd>'+(pLoss*100).toFixed(1)+'%</dd></div>'+
       '<div><dt>期間σ(対数リターン)</dt><dd>'+(s*100).toFixed(1)+'%</dd></div>';
 
-    var rows = '<tr><td>中央値</td><td class="dim">50%</td><td>'+fmtP(med)+'</td><td>'+fmtC(p.C*med/p.S0)+'</td><td>'+pct(med/p.S0-1)+'</td></tr>';
+    function rg(a, b){ return '<span class="rg"><span class="lo">'+a+'</span><i> 〜 </i><span class="hi">'+b+'</span></span>'; }
+    var rows = '<tr><td>中央値<span class="dim xs-only">50%</span></td><td class="dim xs-hide">50%</td><td>'+fmtP(med)+'</td><td>'+fmtC(p.C*med/p.S0)+'</td><td>'+pct(med/p.S0-1)+'</td></tr>';
     [1,2,3].forEach(function(k){
       var lo = band(p,-k,t), hi = band(p,k,t);
-      rows += '<tr><td>±'+k+'σ</td><td class="dim">'+COV[k]+'</td>'+
-        '<td><span class="lo">'+fmtP(lo)+'</span> 〜 <span class="hi">'+fmtP(hi)+'</span></td>'+
-        '<td><span class="lo">'+fmtC(p.C*lo/p.S0)+'</span> 〜 <span class="hi">'+fmtC(p.C*hi/p.S0)+'</span></td>'+
-        '<td><span class="lo">'+pct(lo/p.S0-1)+'</span> 〜 <span class="hi">'+pct(hi/p.S0-1)+'</span></td></tr>';
+      rows += '<tr><td>±'+k+'σ<span class="dim xs-only">'+COV[k]+'</span></td><td class="dim xs-hide">'+COV[k]+'</td>'+
+        '<td>'+rg(fmtP(lo), fmtP(hi))+'</td>'+
+        '<td>'+rg(fmtC(p.C*lo/p.S0), fmtC(p.C*hi/p.S0))+'</td>'+
+        '<td>'+rg(pct(lo/p.S0-1), pct(hi/p.S0-1))+'</td></tr>';
     });
-    $('rtable').innerHTML = '<table><thead><tr><th>範囲</th><th>確率</th><th>株価</th><th>元手 '+fmtC(p.C)+' の場合</th><th>損益率</th></tr></thead><tbody>'+rows+'</tbody></table>';
+    $('rtable').innerHTML = '<table><thead><tr><th>範囲</th><th class="xs-hide">確率</th><th>株価</th><th>元手 '+fmtC(p.C)+'</th><th>損益率</th></tr></thead><tbody>'+rows+'</tbody></table>';
 
     var hs = [1,3,6,12];
     var head = '<tr><th>元手の範囲</th>'+hs.map(function(x){ return '<th>'+(x===12?'1年後':x+'ヶ月後')+'</th>'; }).join('')+'</tr>';
@@ -466,7 +531,7 @@ code { display:block; margin:6px 0; padding:6px 8px; background:var(--field); bo
     // x目盛
     for (var q=-4;q<=4;q++){
       var tq = q/4;
-      if(tq<xmin-1e-9 || tq>1+1e-9) continue;
+      if(tq<xmin-1e-9 || tq>1+1e-9 || (W<560 && q%2)) continue;
       var x = xs(tq);
       var lab = q===0 ? '現在' : (q>0 ? '+'+(q*3)+'ヶ月' : (q*3)+'ヶ月');
       var anchor = q===0 ? 'start' : (q===4 ? 'end' : 'middle');
@@ -576,11 +641,11 @@ code { display:block; margin:6px 0; padding:6px 8px; background:var(--field); bo
     [1,3,6,12].forEach(function(h){
       var i = Math.min(last, bt.T0 + Math.round(bt.f*h/12)), t = (i-bt.T0)/bt.f;
       var med = p.S0*Math.exp(p.m*t), z = zOf(bt, i);
-      function rng(k){ return '<span class="lo">'+fmtP(band(p,-k,t))+'</span> 〜 <span class="hi">'+fmtP(band(p,k,t))+'</span>'; }
-      rows += '<tr><td>'+hzLabel(h)+'</td><td class="dim">'+esc(dateAt(i))+'</td><td>'+fmtP(med)+'</td><td>'+rng(1)+'</td><td>'+rng(2)+'</td>'+
-        '<td><b>'+fmtP(P[i])+'</b></td><td>'+pct(P[i]/med-1)+'</td><td>'+(z>=0?'+':'')+z.toFixed(2)+'σ</td><td>'+judge(z)+'</td></tr>';
+      function rng(k){ return '<span class="rg"><span class="lo">'+fmtP(band(p,-k,t))+'</span><i> 〜 </i><span class="hi">'+fmtP(band(p,k,t))+'</span></span>'; }
+      rows += '<tr><td>'+hzLabel(h)+'<span class="dim xs-only">'+esc(dateAt(i))+'</span></td><td class="dim xs-hide">'+esc(dateAt(i))+'</td><td>'+fmtP(med)+'</td><td>'+rng(1)+'</td><td class="xs-hide">'+rng(2)+'</td>'+
+        '<td><b>'+fmtP(P[i])+'</b></td><td class="xs-hide">'+pct(P[i]/med-1)+'</td><td>'+(z>=0?'+':'')+z.toFixed(2)+'σ<span class="xs-only">'+judge(z)+'</span></td><td class="xs-hide">'+judge(z)+'</td></tr>';
     });
-    $('bttable').innerHTML = '<table><thead><tr><th>予測時点から</th><th>日付</th><th>予測中央値</th><th>±1σ(68%)</th><th>±2σ(95%)</th><th>実績</th><th>中央値との乖離</th><th>位置</th><th>判定</th></tr></thead><tbody>'+rows+'</tbody></table>';
+    $('bttable').innerHTML = '<table><thead><tr><th>予測時点から</th><th class="xs-hide">日付</th><th>予測中央値</th><th>±1σ(68%)</th><th class="xs-hide">±2σ(95%)</th><th>実績</th><th class="xs-hide">中央値との乖離</th><th>位置</th><th class="xs-hide">判定</th></tr></thead><tbody>'+rows+'</tbody></table>';
     drawBT(bt);
   }
 
@@ -612,9 +677,9 @@ code { display:block; margin:6px 0; padding:6px 8px; background:var(--field); bo
     // x目盛(3ヶ月ごと、日付があれば年/月)
     for (var q=-4;q<=4;q++){
       var tq = q/4;
-      if(tq<xmin-1e-9) continue;
+      if(tq<xmin-1e-9 || (W<560 && q%2)) continue;
       var ix = Math.min(last, T0 + Math.round(f*tq)), ds = dateAt(ix);
-      var lab = ds ? ds.slice(0,7).replace('-','/') : (q===0 ? '予測時点' : (q>0?'+':'')+(q*3)+'ヶ月');
+      var lab = ds ? ds.slice(W<560 ? 2 : 0, 7).replace('-','/') : (q===0 ? '予測時点' : (q>0?'+':'')+(q*3)+'ヶ月');
       var x = xs(tq), anchor = q===4 ? 'end' : (tq<=xmin+1e-9 ? 'start' : 'middle');
       svg += '<line x1="'+x.toFixed(1)+'" x2="'+x.toFixed(1)+'" y1="'+(H-mB)+'" y2="'+(H-mB+4)+'" stroke="var(--muted)"/>';
       svg += '<text x="'+x.toFixed(1)+'" y="'+(H-8)+'" text-anchor="'+anchor+'" font-size="11" fill="var(--muted)">'+lab+'</text>';
@@ -905,6 +970,7 @@ code { display:block; margin:6px 0; padding:6px 8px; background:var(--field); bo
         (j.currency && j.currency!=='JPY' ? '、通貨: '+esc(j.currency)+'(元手は円換算せず値動きの比率だけで計算)' : '')+'<br>' + $('info').innerHTML;
       out.textContent = '';
       save();
+      if(mqMobile.matches){ $('tk').blur(); $('p-chart').scrollIntoView({ behavior:'smooth', block:'start' }); }
     }catch(e){
       if(my===fetching) out.textContent = '取得できませんでした: '+e.message+'(下の欄に貼り付けても使えます)';
     }finally{
@@ -930,11 +996,11 @@ code { display:block; margin:6px 0; padding:6px 8px; background:var(--field); bo
     var LIMIT = 200;
     $('scinfo').innerHTML = '<b>'+esc(j.asof)+'</b> 終値時点 ・ '+j.count+'銘柄中 <b>'+rows.length+'銘柄</b>'+(rows.length>LIMIT ? '(下位'+LIMIT+'件を表示)' : '');
     if(!rows.length){ $('sctable').innerHTML = '<div class="empty" style="padding:20px 0">該当する銘柄はありません。</div>'; return; }
-    $('sctable').innerHTML = '<table><thead><tr><th>銘柄</th><th>市場</th><th>1年前</th><th>現在</th><th>騰落率</th><th>当時の μ / σ</th><th>位置</th></tr></thead><tbody>'+
+    $('sctable').innerHTML = '<table><thead><tr><th>銘柄</th><th class="xs-hide">市場</th><th class="xs-hide">1年前</th><th class="xs-hide">現在</th><th>騰落率</th><th class="xs-hide">当時の μ / σ</th><th>位置</th></tr></thead><tbody>'+
       rows.slice(0, LIMIT).map(function(x){
-        return '<tr class="clk" tabindex="0" data-code="'+esc(x.code)+'"><td>'+esc(x.name)+' <span class="dim">'+esc(x.code)+'</span></td><td class="dim">'+esc(x.market)+'</td>'+
-          '<td>'+fmtP(x.base)+'</td><td>'+fmtP(x.price)+'</td><td class="'+(x.ret<0?'lo':'hi')+'">'+pct(x.ret)+'</td>'+
-          '<td class="dim">'+(x.mu*100).toFixed(0)+'% / '+(x.sig*100).toFixed(0)+'%</td><td class="lo"><b>'+x[key].toFixed(2)+'σ</b></td></tr>';
+        return '<tr class="clk" tabindex="0" data-code="'+esc(x.code)+'"><td style="white-space:normal;min-width:9em">'+esc(x.name)+' <span class="dim">'+esc(x.code)+'</span><span class="dim xs-only">'+esc(x.market)+' ・ '+fmtP(x.base)+' → '+fmtP(x.price)+'</span></td><td class="dim xs-hide">'+esc(x.market)+'</td>'+
+          '<td class="xs-hide">'+fmtP(x.base)+'</td><td class="xs-hide">'+fmtP(x.price)+'</td><td class="'+(x.ret<0?'lo':'hi')+'">'+pct(x.ret)+'</td>'+
+          '<td class="dim xs-hide">'+(x.mu*100).toFixed(0)+'% / '+(x.sig*100).toFixed(0)+'%</td><td class="lo"><b>'+x[key].toFixed(2)+'σ</b></td></tr>';
       }).join('')+'</tbody></table>';
   }
   function openFromScreen(tr){
@@ -957,6 +1023,28 @@ code { display:block; margin:6px 0; padding:6px 8px; background:var(--field); bo
     var io = new IntersectionObserver(function(es){ if(es[0].isIntersecting){ io.disconnect(); loadScreen(); } }, { rootMargin: '400px' });
     io.observe($('sc'));
   } else loadScreen();
+
+  /* ---------- スマホ用の下部タブ ---------- */
+  var tabs = [].slice.call(document.querySelectorAll('.tabbar button'));
+  tabs.forEach(function(b){
+    b.addEventListener('click', function(){
+      var id = b.getAttribute('data-go');
+      $(id).scrollIntoView({ behavior:'smooth', block:'start' });
+      if(id==='p-data') setTimeout(function(){ $('tk').focus({ preventScroll:true }); }, 350);
+    });
+  });
+  if(typeof IntersectionObserver !== 'undefined'){
+    var seen = {};
+    var tio = new IntersectionObserver(function(es){
+      es.forEach(function(e){ seen[e.target.id] = e.isIntersecting; });
+      var cur = null;
+      tabs.forEach(function(b){ if(!cur && seen[b.getAttribute('data-go')]) cur = b; });
+      if(cur) tabs.forEach(function(b){ b.setAttribute('aria-current', String(b===cur)); });
+    }, { rootMargin:'-40% 0px -50% 0px' });
+    tabs.forEach(function(b){ tio.observe($(b.getAttribute('data-go'))); });
+  }
+  // 銘柄を選んだらスマホではチャートまでスクロール
+  var mqMobile = window.matchMedia('(max-width:900px)');
 
   /* ---------- 起動 ---------- */
   setSpan(2);
