@@ -171,15 +171,54 @@ tr.clk:hover td:first-child { background:var(--field); }
   dl.stats dd { font-size:16.5px; }
   dl.stats dd.sm { font-size:14px; }
 }
+header { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+#print { flex:none; display:inline-flex; align-items:center; gap:6px; }
+#print svg { width:16px; height:16px; stroke:currentColor; fill:none; stroke-width:1.8; stroke-linejoin:round; }
+#print-head { display:none; }
+
+/* ---------- 印刷 ---------- */
+@media print {
+  @page { size:A4; margin:12mm; }
+  :root, :root[data-theme] {
+    --bg:#fff; --surface:#fff; --ink:#111; --muted:#555; --line:#ccc;
+    --band:#0F6E8C; --hist:#6B7785; --loss:#B3412F; --gain:#1E7A52; --field:#fff;
+  }
+  * { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  body { font-size:11pt; }
+  .wrap { max-width:none; padding:0; }
+  header p, #print, .tabbar, #p-data, #p-param, #sc, .ctl, #chart + .legend + .hint, .btns, button, details.adv { display:none !important; }
+  .grid { display:block; }
+  .panel { border:0; border-radius:0; padding:0; margin:0 0 8mm !important; break-inside:avoid; }
+  #p-note { break-inside:auto; }
+  #print-head { display:block; margin:0 0 6mm; padding-bottom:3mm; border-bottom:1.5px solid #111; }
+  #print-head .ph-name { font-size:16pt; font-weight:700; }
+  #print-head dl { display:grid; grid-template-columns:repeat(4,auto); gap:1mm 6mm; margin:2mm 0 0; font-size:9.5pt; }
+  #print-head dt { color:var(--muted); }
+  #print-head dd { margin:0; font-weight:600; }
+  .tw { overflow:visible; }
+  .tw th:first-child, .tw td:first-child { position:static; }
+  .xs-hide { display:table-cell !important; }
+  .xs-only { display:none !important; }
+  .rg i { display:inline !important; }
+  .rg span { display:inline !important; }
+  th, td { padding:4px 6px; }
+  dl.stats dd { font-size:13pt; }
+  #chart svg, #btchart svg { height:auto; }
+  .tabbar { display:none !important; }
+}
 @media (prefers-reduced-motion: reduce){ * { transition:none !important; animation:none !important; } }
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
-    <h1>株価レンジ予測</h1>
-    <p>過去の株価から、1年先までの株価と元手の変動範囲を対数正規分布で予測します。</p>
+    <div>
+      <h1>株価レンジ予測</h1>
+      <p>過去の株価から、1年先までの株価と元手の変動範囲を対数正規分布で予測します。</p>
+    </div>
+    <button type="button" id="print"><svg viewBox="0 0 24 24"><path d="M6 9V3h12v6"/><rect x="3" y="9" width="18" height="8" rx="2"/><path d="M6 14h12v7H6z"/></svg>印刷</button>
   </header>
+  <div id="print-head"></div>
 
   <div class="grid">
     <!-- 入力 -->
@@ -1045,6 +1084,20 @@ tr.clk:hover td:first-child { background:var(--field); }
   }
   // 銘柄を選んだらスマホではチャートまでスクロール
   var mqMobile = window.matchMedia('(max-width:900px)');
+
+  /* ---------- 印刷 ---------- */
+  function fillPrintHead(){
+    var p = getParams(), name = ($('cname').textContent || '').replace(/^ — /, '') || '(銘柄未指定)';
+    var d = state.dates, n = state.prices.length;
+    var span = n ? ((d[0] && d[n-1]) ? d[0]+' 〜 '+d[n-1] : n+'件') : '—';
+    function item(dt, dd){ return '<div><dt>'+dt+'</dt><dd>'+dd+'</dd></div>'; }
+    $('print-head').innerHTML = '<div class="ph-name">'+esc(name)+'</div><div class="dim">株価レンジ予測(対数正規モデル) ・ 印刷日 '+ymd(new Date())+'</div>'+
+      '<dl>'+item('データ期間', esc(span)+(n ? '('+n+'件)' : ''))+
+      (p ? item('現在の株価', fmtP(p.S0))+item('期待リターン μ', (p.mu*100).toFixed(2)+'%')+item('ボラティリティ σ', (p.sig*100).toFixed(2)+'%')+item('元手', fmtC(p.C)) : '')+
+      '</dl>';
+  }
+  window.addEventListener('beforeprint', fillPrintHead);
+  $('print').addEventListener('click', function(){ fillPrintHead(); window.print(); });
 
   /* ---------- 起動 ---------- */
   setSpan(2);
