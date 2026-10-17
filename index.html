@@ -58,7 +58,7 @@ button {
 }
 button:hover { border-color:var(--band); }
 button[aria-pressed=true] { background:var(--band); border-color:var(--band); color:#fff; }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) button[aria-pressed=true] { color:#0F161D; } }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) button[aria-pressed=true], :root:not([data-theme="light"]) #fetch.pending { color:#0F161D; } }
 .hint { font-size:12.5px; color:var(--muted); margin:8px 0 0; }
 .hint b { color:var(--ink); font-weight:600; }
 .warn { color:var(--loss); }
@@ -68,6 +68,13 @@ button[aria-pressed=true] { background:var(--band); border-color:var(--band); co
 .ctl input[type=range] { flex:1; accent-color:var(--band); min-width:120px; }
 .ctl strong { min-width:4.6em; font-weight:700; }
 .seg { display:flex; gap:6px; }
+#chart, #btchart { position:relative; }
+.tip { position:absolute; z-index:5; pointer-events:none; background:var(--surface); border:1px solid var(--line); border-radius:6px; padding:5px 8px; font-size:12px; line-height:1.45; white-space:nowrap; box-shadow:0 4px 14px rgba(0,0,0,.14); }
+.tip b { font-size:13.5px; }
+.tipl { position:absolute; width:0; border-left:1px dashed var(--muted); pointer-events:none; }
+.tipd { position:absolute; width:9px; height:9px; margin:-4.5px 0 0 -4.5px; border-radius:50%; background:var(--ink); border:2px solid var(--surface); pointer-events:none; }
+#btchart { touch-action:pan-y; user-select:none; -webkit-user-select:none; }
+#fetch.pending { background:var(--band); border-color:var(--band); color:#fff; font-weight:700; }
 #chart { width:100%; touch-action:pan-y; cursor:ew-resize; user-select:none; -webkit-user-select:none; }
 #chart svg { display:block; width:100%; }
 .legend { display:flex; flex-wrap:wrap; gap:6px 16px; font-size:12.5px; color:var(--muted); margin-top:8px; }
@@ -101,7 +108,7 @@ tr.clk:focus-visible { outline:2px solid var(--band); outline-offset:-2px; }
 .hi { color:var(--gain); }
 .dim { color:var(--muted); font-size:12.5px; }
 .combo { position:relative; }
-#sugg { position:absolute; left:0; right:0; top:calc(100% + 4px); z-index:10; margin:0; padding:4px 0; list-style:none; max-height:340px; overflow-y:auto;
+#sugg { position:absolute; left:0; right:0; top:calc(100% + 4px); z-index:10; margin:0; padding:4px 0; list-style:none; max-height:340px; overflow-y:auto; overscroll-behavior:contain; -webkit-overflow-scrolling:touch;
   background:var(--surface); border:1px solid var(--line); border-radius:8px; box-shadow:0 6px 20px rgba(0,0,0,.12); }
 #sugg li { padding:6px 10px; cursor:pointer; line-height:1.4; }
 #sugg li[aria-selected=true], #sugg li:hover { background:var(--field); }
@@ -230,7 +237,7 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
           <input type="text" id="tk" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="sugg" placeholder="例: トヨタ / 7203 / オルカン / 金 / ドル円" autocomplete="off" spellcheck="false">
           <ul id="sugg" role="listbox" aria-label="候補" hidden></ul>
         </div>
-        <p class="hint">日本株・ETF・投資信託・指数・金や原油・為替を名前かコードで探せます。候補を選ぶとすぐ取得します。</p>
+        <p class="hint">日本株・ETF・投資信託・指数・金や原油・為替を名前かコードで探せます。候補と期間を選んで「適用」を押すと反映されます。</p>
         <label for="from">期間</label>
         <div class="period">
           <input type="date" id="from" aria-label="開始日"><span class="dim">〜</span><input type="date" id="to" aria-label="終了日">
@@ -238,7 +245,7 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
         <div class="btns" role="group" aria-label="期間のプリセット" id="spans">
           <button type="button" data-y="1">1年</button><button type="button" data-y="2">2年</button><button type="button" data-y="3">3年</button><button type="button" data-y="5">5年</button><button type="button" data-y="10">10年</button>
         </div>
-        <div class="btns"><button type="button" id="fetch">この期間で取得</button></div>
+        <div class="btns"><button type="button" id="fetch">適用</button></div>
         <p class="hint" id="tkout">終値を最長10年分取得できます。1年より長く取ると「予測の検証」も表示されます。</p>
         <p class="hint" id="info"></p>
         <details class="adv" id="adv">
@@ -609,7 +616,7 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
     svg += '<text x="'+labX.toFixed(1)+'" y="'+Math.max(mT+10, up3-8).toFixed(1)+'" text-anchor="'+labAnchor+'" font-size="12" font-weight="700" fill="var(--ink)">'+hzLabel(h)+'</text>';
     svg += '</svg>';
     box.innerHTML = svg;
-    box._geo = { mL:mL, mR:mR, W:W, xmin:xmin };
+    box._geo = { mL:mL, mR:mR, W:W, H:H, mT:mT, mB:mB, xmin:xmin, xs:xs, ys:ys, p:p, hist:hist, hdates:state.dates.slice(-hist.length) };
   }
 
   function update(){
@@ -744,6 +751,56 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
     svg += '<circle cx="'+xs(tOf(last)).toFixed(1)+'" cy="'+ys(P[last]).toFixed(1)+'" r="4" fill="var(--ink)"/>';
     svg += '</svg>';
     box.innerHTML = svg;
+    box._geo = { mL:mL, mR:mR, W:W, H:H, mT:mT, mB:mB, xmin:xmin, xs:xs, ys:ys, bt:bt, i0:i0 };
+  }
+
+  /* ---------- チャートの値表示(触った位置の価格) ---------- */
+  function hideTip(box){ [].forEach.call(box.querySelectorAll('.tip,.tipl,.tipd'), function(el){ el.remove(); }); }
+  function showTip(box, x, y, html){
+    var g = box._geo;
+    hideTip(box);
+    var l = document.createElement('div'); l.className = 'tipl';
+    l.style.left = x+'px'; l.style.top = g.mT+'px'; l.style.height = (g.H-g.mT-g.mB)+'px';
+    var d = document.createElement('div'); d.className = 'tipd'; d.style.left = x+'px'; d.style.top = y+'px';
+    var t = document.createElement('div'); t.className = 'tip'; t.innerHTML = html;
+    box.appendChild(l); box.appendChild(d); box.appendChild(t);
+    // 指で隠れないよう点の上に出し、はみ出すときは左右・下にずらす
+    var tw = t.offsetWidth, th = t.offsetHeight;
+    var tx = Math.max(2, Math.min(g.W-tw-2, x-tw/2)), ty = y-th-14;
+    if(ty < 2) ty = Math.min(g.H-th-2, y+14);
+    t.style.left = tx+'px'; t.style.top = ty+'px';
+  }
+  function tOfPointer(box, e){
+    var g = box._geo, x = e.clientX - box.getBoundingClientRect().left;
+    var t = (x - g.mL)/(g.W-g.mL-g.mR)*(1-g.xmin) + g.xmin;
+    return Math.max(g.xmin, Math.min(1, t));
+  }
+  function rgTxt(lo, hi){ return fmtP(lo)+' 〜 '+fmtP(hi); }
+  function chartTip(e){
+    var box = $('chart'), g = box._geo; if(!g || !g.p) return;
+    var p = g.p, t = tOfPointer(box, e), n = g.hist.length;
+    if(t < 0 && n > 1){
+      var i = Math.max(0, Math.min(n-1, Math.round((t-g.xmin)*p.f))), v = g.hist[i], ti = -(n-1-i)/p.f;
+      showTip(box, g.xs(ti), g.ys(v), (g.hdates[i] ? esc(g.hdates[i])+' ' : '')+'終値<br><b>'+fmtP(v)+'</b>');
+      return;
+    }
+    if(t < 0) t = 0;
+    var med = p.S0*Math.exp(p.m*t), mo = t*12;
+    var when = t===0 ? '現在' : (mo < 1 ? '約'+Math.max(1, Math.round(t*p.f))+'営業日後' : '約'+mo.toFixed(1)+'ヶ月後');
+    var dt = new Date(Date.now() + t*365.25*86400000);
+    showTip(box, g.xs(t), g.ys(med), when+(t>0 ? ' <span class="dim">('+ymd(dt)+'頃)</span>' : '')+'<br>中央値 <b>'+fmtP(med)+'</b>'+
+      (t>0 ? '<br>68%: '+rgTxt(band(p,-1,t), band(p,1,t))+'<br>95%: '+rgTxt(band(p,-2,t), band(p,2,t)) : ''));
+  }
+  function btTip(e){
+    var box = $('btchart'), g = box._geo; if(!g || !g.bt) return;
+    var bt = g.bt, p = bt.p, P = state.prices;
+    var i = Math.max(g.i0, Math.min(bt.n-1, bt.T0 + Math.round(tOfPointer(box, e)*bt.f))), t = (i-bt.T0)/bt.f;
+    var html = (dateAt(i) ? esc(dateAt(i))+' ' : '')+(i<=bt.T0 ? '終値' : '実績')+'<br><b>'+fmtP(P[i])+'</b>';
+    if(i > bt.T0){
+      var z = zOf(bt, i);
+      html += '<br>予測中央値 '+fmtP(p.S0*Math.exp(p.m*t))+'<br>68%: '+rgTxt(band(p,-1,t), band(p,1,t))+'<br>位置 '+(z>=0?'+':'')+z.toFixed(2)+'σ';
+    }
+    showTip(box, g.xs(t), g.ys(P[i]), html);
   }
 
   /* ---------- チャート操作 ---------- */
@@ -757,8 +814,17 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
     h = Math.max(1, Math.min(12, h));
     if(h !== parseInt($('hz').value,10)){ $('hz').value = h; update(); }
   }
-  $('chart').addEventListener('pointerdown', function(e){ dragging = true; setFromPointer(e); });
-  window.addEventListener('pointermove', function(e){ if(dragging) setFromPointer(e); });
+  $('chart').addEventListener('pointerdown', function(e){ dragging = true; setFromPointer(e); chartTip(e); });
+  window.addEventListener('pointermove', function(e){
+    if(dragging){ setFromPointer(e); chartTip(e); }
+    else if($('chart').contains(e.target)) chartTip(e);
+    else if($('btchart').contains(e.target)) btTip(e);
+  });
+  $('btchart').addEventListener('pointerdown', btTip);
+  // マウスは外れたら消す。タッチは読めるよう残す(次の描き直しで消える)
+  ['chart','btchart'].forEach(function(id){
+    $(id).addEventListener('pointerleave', function(e){ if(e.pointerType==='mouse' && !dragging) hideTip($(id)); });
+  });
   window.addEventListener('pointerup', function(){ dragging = false; });
 
   /* ---------- 保存 ---------- */
@@ -923,7 +989,13 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
     state.sel = { kind:x.kind, symbol:x.symbol, fund:x.fund, name:x.name };
     $('tk').value = x.name;
     closeSugg();
-    fetchPrices();
+    pending();
+  }
+  // 銘柄や期間を変えたら「適用」を押すまで取得しない
+  function pending(){
+    $('fetch').classList.add('pending');
+    $('tkout').textContent = '「適用」を押すと反映されます。';
+    save();
   }
   function normSymbol(raw){
     var c = raw.trim().normalize('NFKC').toUpperCase();
@@ -932,7 +1004,7 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
     return c;
   }
   $('tk').addEventListener('focus', function(){ loadJp().then(function(){ if(document.activeElement===$('tk') && !state.sel) onType(); }); });
-  $('tk').addEventListener('input', function(){ state.sel = null; loadJp().then(onType); });
+  $('tk').addEventListener('input', function(){ state.sel = null; $('fetch').classList.add('pending'); loadJp().then(onType); });
   $('tk').addEventListener('blur', function(){ setTimeout(closeSugg, 150); });
   $('tk').addEventListener('keydown', function(e){
     var n = sugg.items.length;
@@ -945,11 +1017,12 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
       else { closeSugg(); fetchPrices(); }
     }
   });
-  $('sugg').addEventListener('pointerdown', function(e){
+  // pointerdown で選ぶと、候補をスクロールしようと触っただけで選ばれてしまうので click で選ぶ。
+  // mousedown を止めて入力欄のフォーカスを保つ(スクロールのときは mousedown も click も起きない)
+  $('sugg').addEventListener('mousedown', function(e){ e.preventDefault(); });
+  $('sugg').addEventListener('click', function(e){
     var li = e.target.closest('li[data-i]');
-    if(!li) return;
-    e.preventDefault();
-    pick(sugg.items[+li.getAttribute('data-i')]);
+    if(li) pick(sugg.items[+li.getAttribute('data-i')]);
   });
 
   /* ---------- 期間 ---------- */
@@ -973,10 +1046,10 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
     var b = e.target.closest('button[data-y]');
     if(!b) return;
     setSpan(+b.getAttribute('data-y'));
-    if(state.sel) fetchPrices(); else save();
+    pending();
   });
   ['from','to'].forEach(function(id){
-    $(id).addEventListener('change', function(){ state.span = 0; markSpan(); if(state.sel) fetchPrices(); else save(); });
+    $(id).addEventListener('change', function(){ state.span = 0; markSpan(); pending(); });
   });
 
   /* ---------- 取得 ---------- */
@@ -1008,6 +1081,7 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
       $('info').innerHTML = '<b>'+esc(sel.name)+'</b>('+esc(code)+')の終値 '+j.prices.length+'件('+esc(j.prices[0].date)+'〜'+esc(j.prices[j.prices.length-1].date)+')を取得しました。取得元: '+esc(j.source)+
         (j.currency && j.currency!=='JPY' ? '、通貨: '+esc(j.currency)+'(元手は円換算せず値動きの比率だけで計算)' : '')+'<br>' + $('info').innerHTML;
       out.textContent = '';
+      $('fetch').classList.remove('pending');
       save();
       if(mqMobile.matches){ $('tk').blur(); $('p-chart').scrollIntoView({ behavior:'smooth', block:'start' }); }
     }catch(e){
@@ -1048,6 +1122,7 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
     if(!x) return;
     if(state.span && state.span<2) setSpan(2);
     pick({ kind:'yahoo', symbol: x.code+'.T', name: x.name });
+    fetchPrices();
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
   $('sctable').addEventListener('click', function(e){ var tr = e.target.closest('tr[data-code]'); if(tr) openFromScreen(tr); });
