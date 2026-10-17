@@ -5,8 +5,9 @@
 // 日本株は stocks-jp.json を画面側で検索するので、ここでは扱わない
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130 Safari/537.36';
 
-async function fundSearch(q) {
-  const body = 's_keyword=' + encodeURIComponent(q) + '&s_kensakuKbn=1&startNo=0&draw=1';
+// 協会の検索はスペース区切りで AND 検索になる。1ページ20件
+async function fundSearch(q, startNo) {
+  const body = 's_keyword=' + encodeURIComponent(q) + '&s_kensakuKbn=1&startNo=' + (startNo || 0) + '&draw=1';
   const res = await fetch('https://toushin-lib.fwg.ne.jp/FdsWeb/FDST999900/fundDataSearch', {
     method: 'POST',
     headers: { 'User-Agent': UA, 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', 'X-Requested-With': 'XMLHttpRequest' },
@@ -14,29 +15,50 @@ async function fundSearch(q) {
   });
   if (!res.ok) throw new Error('投資信託協会 HTTP ' + res.status);
   const j = await res.json();
-  return (j && j.searchResultInfo && j.searchResultInfo.resultInfoMapList) || [];
+  const r = (j && j.searchResultInfo) || {};
+  return { list: r.resultInfoMapList || [], total: +r.recordsTotal || 0 };
 }
 
 // 「・」や空白・括弧の有無、全角半角、大文字小文字を無視して比べるための正規化
-const loose = (s) => (s || '').normalize('NFKC').toLowerCase().replace(/[\s・･\-‐－()（）\[\]【】「」/、。,.]/g, '');
+const PUNCT = /[\s・･\-‐－()（）\[\]【】「」/、。,.]/g;
+const loose = (s) => (s || '').normalize('NFKC').toLowerCase().replace(PUNCT, '');
+const toKata = (s) => s.replace(/[ぁ-ゖ]/g, (c) => String.fromCharCode(c.charCodeAt(0) + 0x60));
+
+// 協会の検索は完全な部分一致なので、「グローバルロボティクス」(正式名は「グローバル・ロボティクス」)のように
+// 「・」を省いたり、ひらがなで入れたりすると0件になる。そのときは
+// 入力をカタカナにして記号を除き、4文字ずつの断片で検索 → ヒットした断片どうしを AND で検索し直す
+async function looseFundSearch(q) {
+  const base = toKata(q.normalize('NFKC')).replace(PUNCT, '');
+  const key = base.toLowerCase();
+  if (base.length < 3) return [];
+  const pos = new Set();
+  const n = Math.max(0, base.length - 4);
+  for (let k = 0; k <= 7; k++) pos.add(Math.round((n * k) / 7)); // 先頭から末尾まで最大8か所
+  const pieces = [...pos].map((p) => base.slice(p, p + 4));
+  const hits = (await Promise.all(pieces.map((w) => fundSearch(w).then((r) => ({ w, total: r.total }), () => ({ w, total: 0 })))))
+    .filter((x) => x.total > 0);
+  if (!hits.length) return [];
+  const isMatch = (f) => loose(f.fundNm).includes(key) || loose(f.fundStNm).includes(key);
+  // 先頭側の断片から1つずつ AND に加え、0件になる断片(別のファンドにだけ当たるもの)は外す
+  let and = null;
+  const used = [];
+  for (const x of hits) {
+    if (used.includes(x.w)) continue;
+    const r = used.length ? await fundSearch(used.concat(x.w).join(' ')) : await fundSearch(x.w);
+    if (r.total > 0) { used.push(x.w); and = r; }
+    if (r.total > 0 && r.total <= 20 && r.list.some(isMatch)) break;
+  }
+  if (and && and.list.some(isMatch)) return and.list.filter(isMatch);
+  if (and && and.total <= 20) return and.list;
+  // 断片が別々のファンドにしか当たらないときは、いちばん絞れた断片の結果(最大3ページ)から名前で探す
+  const best = hits.sort((a, b) => a.total - b.total)[0].w;
+  const pages = await Promise.all([0, 20, 40].map((s) => fundSearch(best, s).then((r) => r.list, () => [])));
+  return [].concat(...pages).filter(isMatch);
+}
 
 async function searchFunds(q) {
-  let list = await fundSearch(q);
-  // 協会の検索は完全な部分一致なので、「NWQフレキシブルインカム」のように「・」を省くと0件になる。
-  // そのときは英字とカナの境目などで分けた語や先頭部分で探し直し、正規化した名前で絞り込む
-  if (!list.length) {
-    const key = loose(q);
-    const words = q.normalize('NFKC').split(/[\s・･()（）/]+|(?<=[A-Za-z0-9])(?=[^A-Za-z0-9])|(?<=[^A-Za-z0-9])(?=[A-Za-z0-9])/)
-      .filter((w) => w.length >= 2).sort((a, b) => b.length - a.length);
-    const tries = [];
-    [...words.slice(0, 3), words[0] && words[0].slice(0, 6), key.slice(0, 4)].forEach((w) => {
-      if (w && w.length >= 2 && w !== q && !tries.includes(w)) tries.push(w);
-    });
-    for (const w of tries.slice(0, 4)) {
-      const ok = (await fundSearch(w)).filter((f) => loose(f.fundNm).includes(key) || loose(f.fundStNm).includes(key));
-      if (ok.length) { list = ok; break; }
-    }
-  }
+  let list = (await fundSearch(q)).list;
+  if (!list.length) list = await looseFundSearch(q);
   return list.slice(0, 15).map((f) => ({
     kind: 'fund',
     fund: f.isinCd + '_' + f.associFundCd,
