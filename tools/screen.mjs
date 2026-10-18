@@ -1,6 +1,7 @@
 // 全上場銘柄について「1年前時点の予測から見て、今の株価が何σの位置か」を計算し screen.json に書き出す
 // GitHub Actions(.github/workflows/screen.yml)で毎日実行する。手元では: node tools/screen.mjs
 // 計算は画面の「予測の検証」と同じ考え方: 1年前より前の期間で μ・σ を推定し、1年前の株価から予測した1年後の分布と今の株価を比べる
+// あわせて直近 1/2/3/5/10 年の μ・σ を sharpe.json に書き出す(画面のシャープレシオ・ランキングで使う)
 import { readFileSync, writeFileSync } from 'node:fs';
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130 Safari/537.36';
@@ -10,11 +11,12 @@ const CONCURRENCY = 6;
 const STALE_DAYS = 10;    // 最終取引日がこれより古い銘柄(売買停止など)は除外
 const MARKETS = new Set(['プライム', 'スタンダード', 'グロース']);
 const DAY = 86400000;
+const PERIODS = [1, 2, 3, 5, 10];  // シャープレシオ用に μ・σ を出す期間(年)
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function fetchChart(sym) {
-  const url = 'https://query1.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(sym) + '?range=2y&interval=1d&events=split';
+  const url = 'https://query1.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(sym) + '?range=10y&interval=1d&events=split';
   for (let attempt = 0; attempt < 5; attempt++) {
     const res = await fetch(url, { headers: { 'User-Agent': UA, Accept: 'application/json' } });
     if (res.ok) return (((await res.json()).chart || {}).result || [])[0];
@@ -68,32 +70,55 @@ function analyze(r) {
     if (D.length && D[D.length - 1] === d) { P.pop(); D.pop(); }
     P.push(c); D.push(d);
   });
+  // 30日以上取引が無い区間(上場廃止→再上場、長期の売買停止)があれば、それより前は別物として捨てる
+  for (let i = P.length - 1; i > 0; i--) {
+    if (Date.parse(D[i]) - Date.parse(D[i - 1]) > 30 * DAY) { P.splice(0, i); D.splice(0, i); break; }
+  }
   const n = P.length;
   if (n < 2 || Date.now() - Date.parse(D[n - 1]) > STALE_DAYS * DAY) return null;
   // 最終日のちょうど1年前(以前で最も近い営業日)を予測時点にする
   const target = new Date(Date.parse(D[n - 1]) - 365 * DAY).toISOString().slice(0, 10);
   let T0 = -1;
   for (let i = n - 1; i >= 0; i--) if (D[i] <= target) { T0 = i; break; }
-  if (T0 < MIN_EST) return null;
-  const est = estimate(P.slice(0, T0 + 1));
-  if (!(est.sigma > 0)) return null;
+  const rd = (x, k) => +x.toFixed(k);
+  const px = (x) => rd(x, x >= 100 ? 0 : 2);
+  // 直近 y 年の μ・σ(上場が新しく期間に足りない銘柄は null)
+  const sr = PERIODS.map((y) => {
+    const from = new Date(D[n - 1]);
+    from.setUTCFullYear(from.getUTCFullYear() - y);
+    const fd = from.toISOString().slice(0, 10);
+    if (Date.parse(D[0]) - Date.parse(fd) > 7 * DAY) return null;
+    let s = 0;
+    for (let i = n - 1; i >= 0; i--) if (D[i] <= fd) { s = i; break; }
+    if (n - 1 - s < 200 * y) return null;
+    const e = estimate(P.slice(s));
+    return e.sigma > 0 ? [rd(e.mu, 4), rd(e.sigma, 4)] : null;
+  });
+  const sharpe = { price: px(P[n - 1]), sr };
+  if (T0 < MIN_EST) return { sharpe };
+  // 推定は予測時点からさらに1年前まで(10年分取得しても、以前の range=2y と同じ長さにそろえる)
+  const fromEst = new Date(Date.parse(D[T0]) - 365 * DAY).toISOString().slice(0, 10);
+  let E0 = 0;
+  while (E0 < T0 && D[E0] < fromEst) E0++;
+  if (T0 - E0 < MIN_EST) return { sharpe };
+  const est = estimate(P.slice(E0, T0 + 1));
+  if (!(est.sigma > 0)) return { sharpe };
   const lr = Math.log(P[n - 1] / P[T0]), sd = est.sigma;  // t = 1年
   const z = (lr - (est.mu - sd * sd / 2)) / sd;           // 当時の推定 μ を使った位置
   const z0 = (lr + sd * sd / 2) / sd;                     // μ = 0 とした位置
-  const rd = (x, k) => +x.toFixed(k);
-  const px = (x) => rd(x, x >= 100 ? 0 : 2);
-  return { price: px(P[n - 1]), base: px(P[T0]), date: D[n - 1], baseDate: D[T0], ret: rd(Math.exp(lr) - 1, 4), mu: rd(est.mu, 4), sig: rd(est.sigma, 4), z: rd(z, 2), z0: rd(z0, 2) };
+  return { sharpe, screen: { price: px(P[n - 1]), base: px(P[T0]), date: D[n - 1], baseDate: D[T0], ret: rd(Math.exp(lr) - 1, 4), mu: rd(est.mu, 4), sig: rd(est.sigma, 4), z: rd(z, 2), z0: rd(z0, 2) } };
 }
 
 const list = JSON.parse(readFileSync('stocks-jp.json', 'utf8')).items.filter((x) => MARKETS.has(x[2]));
-const out = [];
+const out = [], srOut = [];
 let failed = 0, next = 0, done = 0;
 async function worker() {
   while (next < list.length) {
     const [code, name, market] = list[next++];
     try {
       const a = analyze(await fetchChart(code + '.T'));
-      if (a) out.push(Object.assign({ code, name, market }, a));
+      if (a && a.screen) out.push(Object.assign({ code, name, market }, a.screen));
+      if (a && a.sharpe.sr.some(Boolean)) srOut.push([code, name, market, a.sharpe.price].concat(a.sharpe.sr));
     } catch (e) {
       failed++;
       if (failed <= 20) console.error(code, e.message);
@@ -111,4 +136,6 @@ if (out.length < list.length * 0.5) {
 out.sort((a, b) => a.z - b.z);
 const asof = out.reduce((m, x) => (x.date > m ? x.date : m), '');
 writeFileSync('screen.json', JSON.stringify({ generated: new Date().toISOString(), asof, count: out.length, universe: list.length, failed, items: out }));
+// items: [コード, 名前, 市場, 株価, 期間ごとの [μ, σ] または null(periods の順)]
+writeFileSync('sharpe.json', JSON.stringify({ generated: new Date().toISOString(), asof, periods: PERIODS, items: srOut }));
 console.log('saved', out.length, 'items; asof', asof, '; failed', failed);

@@ -149,7 +149,7 @@ tr.clk:hover td:first-child { background:var(--field); }
   .panel + .panel { margin-top:0; }
   .panel { padding:14px 12px; border-radius:12px; min-width:0; }
   #p-data { order:0; } #p-chart { order:1; } #p-range { order:2; } #p-param { order:3; }
-  #p-hz { order:4; } #p-bt { order:5; } #sc { order:6; } #p-note { order:7; }
+  #p-hz { order:4; } #p-bt { order:5; } #sr { order:6; } #sc { order:7; } #p-note { order:8; }
   /* iOS で入力時に拡大されないよう 16px 以上 */
   input[type=number], input[type=text], input[type=date], select, textarea { font-size:16px; }
   #tk { padding:11px 12px; }
@@ -161,7 +161,7 @@ tr.clk:hover td:first-child { background:var(--field); }
   .filters select { font-size:16px; }
   #sugg { max-height:55vh; }
   #sugg li { padding:10px 12px; }
-  .tabbar { display:grid; grid-template-columns:repeat(4,1fr); position:fixed; left:0; right:0; bottom:0; z-index:20;
+  .tabbar { display:grid; grid-template-columns:repeat(5,1fr); position:fixed; left:0; right:0; bottom:0; z-index:20;
     background:var(--surface); border-top:1px solid var(--line); padding:4px 4px env(safe-area-inset-bottom,0px); box-shadow:0 -4px 16px rgba(0,0,0,.06); }
   .tabbar button { border:0; border-radius:8px; min-height:52px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; font-size:11.5px; color:var(--muted); background:transparent; }
   .tabbar button svg { width:22px; height:22px; stroke:currentColor; fill:none; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
@@ -193,7 +193,7 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
   * { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
   body { font-size:11pt; }
   .wrap { max-width:none; padding:0; }
-  header p, #print, .tabbar, #p-data, #p-param, #sc, .ctl, #chart + .legend + .hint, .btns, button, details.adv { display:none !important; }
+  header p, #print, .tabbar, #p-data, #p-param, #sc, #sr, #hy, .ctl, #chart + .legend + .hint, .btns, button, details.adv { display:none !important; }
   .grid { display:block; }
   .panel { border:0; border-radius:0; padding:0; margin:0 0 8mm !important; break-inside:avoid; }
   #p-note { break-inside:auto; }
@@ -221,7 +221,7 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
   <header>
     <div>
       <h1>株価レンジ予測</h1>
-      <p>過去の株価から、1年先までの株価と元手の変動範囲を対数正規分布で予測します。</p>
+      <p>過去の株価から、最長10年先までの株価と元手の変動範囲を対数正規分布で予測します。</p>
     </div>
     <button type="button" id="print"><svg viewBox="0 0 24 24"><path d="M6 9V3h12v6"/><rect x="3" y="9" width="18" height="8" rx="2"/><path d="M6 14h12v7H6z"/></svg>印刷</button>
   </header>
@@ -289,7 +289,33 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
           </div>
         </div>
         <div class="btns"><button type="button" id="mu0">μ を 0% にする</button></div>
-        <p class="hint">データを貼ると自動で推定して入力されます。手で書き換えた値がそのまま予測に使われます。</p>
+        <p class="hint">データを貼ると自動で推定して入力されます。手で書き換えた値がそのまま予測に使われます(1年目の値)。</p>
+        <label for="rf">安全資産の利回り rf (%)</label>
+        <input type="number" id="rf" step="0.1" value="0.5" inputmode="decimal">
+        <p class="hint" id="shout"></p>
+        <hr class="sep">
+        <h2 style="margin-bottom:4px">2年目以降の修正</h2>
+        <p class="hint" style="margin-top:0">1年ごとに μ・σ を長期の値へ近づけて予測します。</p>
+        <div class="row2">
+          <div>
+            <label for="mulr">長期の μ (%)</label>
+            <input type="number" id="mulr" step="0.1" value="6.5" inputmode="decimal">
+          </div>
+          <div>
+            <label for="siglr">長期の σ (%)</label>
+            <input type="number" id="siglr" step="0.1" min="0.1" value="20" inputmode="decimal">
+          </div>
+        </div>
+        <label for="hl">長期の値へ戻る速さ(半減期)</label>
+        <select id="hl">
+          <option value="0.5">0.5年(速い)</option>
+          <option value="1" selected>1年</option>
+          <option value="2">2年</option>
+          <option value="3">3年</option>
+          <option value="5">5年(遅い)</option>
+          <option value="0">戻さない(1年目の値のまま)</option>
+        </select>
+        <p class="hint">データを取得すると、長期の σ には全期間の σ、長期の μ には rf + 0.3 × 長期σ(株式の長期的な平均に近いシャープレシオ 0.3 相当)が入ります。1年目の σ は、データが2年以上あれば直近1年から推定します。</p>
         <hr class="sep">
         <label for="cap">元手(円)</label>
         <input type="number" id="cap" step="10000" min="0" value="1000000" inputmode="numeric">
@@ -301,8 +327,11 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
       <section class="panel" aria-labelledby="h-chart" id="p-chart">
         <h2 id="h-chart">予測チャート<span id="cname" class="dim" style="font-weight:500"></span></h2>
         <div class="ctl">
+          <div class="seg" role="group" aria-label="予測期間" id="hy">
+            <button type="button" data-y="1" aria-pressed="true">1年</button><button type="button" data-y="2" aria-pressed="false">2年</button><button type="button" data-y="3" aria-pressed="false">3年</button><button type="button" data-y="5" aria-pressed="false">5年</button><button type="button" data-y="10" aria-pressed="false">10年</button>
+          </div>
           <div class="grow">
-            <label for="hz" style="margin:0">予測期間</label>
+            <label for="hz" style="margin:0">表示</label>
             <input type="range" id="hz" min="1" max="12" step="1" value="12">
             <strong id="hzv">1年後</strong>
           </div>
@@ -333,6 +362,12 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
       <section class="panel" aria-labelledby="h-hz" id="p-hz">
         <h2 id="h-hz">期間別の元手レンジ</h2>
         <div class="tw" id="htable"></div>
+        <div id="ywrap">
+          <hr class="sep">
+          <h2>1年ごとの μ・σ とシャープレシオ</h2>
+          <div class="tw" id="ytable"></div>
+          <p class="hint">各年の μ・σ はその1年間だけに使い、年をまたぐと次の年の値に切り替えて積み上げています。</p>
+        </div>
       </section>
 
       <section class="panel" aria-labelledby="h-bt" id="p-bt">
@@ -360,6 +395,24 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
         <div class="tw" id="bttable"></div>
       </section>
 
+      <section class="panel" aria-labelledby="h-sr" id="sr">
+        <h2 id="h-sr">シャープレシオ ランキング</h2>
+        <div class="filters">
+          <label class="dim" style="margin:0">期間
+            <select id="sr-y"><option value="1">直近1年</option><option value="2">直近2年</option><option value="3" selected>直近3年</option><option value="5">直近5年</option><option value="10">直近10年</option></select>
+          </label>
+          <label class="dim" style="margin:0">市場
+            <select id="sr-mk"><option value="">すべて</option><option>プライム</option><option>スタンダード</option><option>グロース</option></select>
+          </label>
+          <label class="dim" style="margin:0">表示
+            <select id="sr-n"><option value="50">上位50</option><option value="100" selected>上位100</option><option value="300">上位300</option></select>
+          </label>
+        </div>
+        <p class="hint" id="srinfo">読み込み中…</p>
+        <div class="tw" id="srtable"></div>
+        <p class="hint">東証上場の全銘柄について、指定期間の日次終値から年率の μ・σ を推定し、シャープレシオ =(μ − rf)/ σ を高い順に並べています。rf は左の「安全資産の利回り」を使います。期間の途中で上場した銘柄は含みません。値動きの少ない銘柄(σ 5%未満)は売買が少なく値が動かないだけのことが多いので除いています。行を選ぶとその期間でその銘柄を読み込みます。</p>
+      </section>
+
       <section class="panel" aria-labelledby="h-sc" id="sc">
         <h2 id="h-sc">下がりすぎ銘柄(1年前の予測と比べて)</h2>
         <div class="filters">
@@ -383,6 +436,8 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
         <h2 id="h-note">モデルの前提と注意</h2>
         <p>株価 S は S<sub>t</sub> = S<sub>0</sub>·exp(mt + σ√t·Z)、Z は標準正規分布、m = μ − σ²/2 とします(幾何ブラウン運動)。対数リターンが正規分布に従うため、株価は対数正規分布になり、下限は 0、上側に長い裾を持ちます。</p>
         <p>kσ の範囲は S<sub>0</sub>·exp(mt ± kσ√t) です。確率は 1σ=68.27%、2σ=95.45%、3σ=99.73% です。元手の範囲は 元手 × S/S<sub>0</sub> で計算しています。</p>
+        <p>2年以上の予測では、k年目の μ<sub>k</sub> = μ<sub>長期</sub> + (μ − μ<sub>長期</sub>)·φ<sup>k−1</sup>、σ<sub>k</sub>² = σ<sub>長期</sub>² + (σ² − σ<sub>長期</sub>²)·φ<sup>k−1</sup>(φ = 0.5<sup>1/半減期</sup>)として、年ごとに値を切り替えます。時点 t までの対数リターンは平均 Σ(μ<sub>k</sub> − σ<sub>k</sub>²/2)·Δt、分散 Σσ<sub>k</sub>²·Δt の正規分布として範囲を計算します。過去の高いリターンや大きな値動きがそのまま何年も続くとは考えにくいため、長期の値へ徐々に戻す想定です。</p>
+        <p>シャープレシオは (μ − rf) / σ で、リスク1単位あたりにどれだけ安全資産を上回るリターンを得たかを表します。過去のシャープレシオが高くても将来も高いとは限りません。</p>
         <p>「予測の検証」は、データ末尾から1年分(日次なら252件)を「実績」として隠し、それより前のデータだけで μ・σ を推定して1年前時点から予測したものと実績を比べます。位置(σ)は (ln(実績/予測時点の株価) − mt) / (σ√t) で、0 なら中央値どおり、±1 以内に収まる確率が約68%です。1回の検証だけでは偶然の影響が大きいので、複数銘柄で確かめるのがおすすめです。</p>
         <p>過去の平均リターンの推定誤差は大きく、データが短いほど不安定です。実際の株価は μ・σ が一定でなく、暴落など3σを超える動きも正規分布の想定より起こりやすいです。配当・手数料・税は考慮していません。投資判断の助言ではありません。</p>
       </section>
@@ -394,20 +449,23 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
   <button type="button" data-go="p-data" aria-current="true"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>銘柄</button>
   <button type="button" data-go="p-chart"><svg viewBox="0 0 24 24"><path d="M3 20h18"/><path d="M4 16l5-5 4 3 7-8"/></svg>予測</button>
   <button type="button" data-go="p-bt"><svg viewBox="0 0 24 24"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9"/></svg>検証</button>
+  <button type="button" data-go="sr"><svg viewBox="0 0 24 24"><path d="M5 20V12M12 20V5M19 20v-5"/></svg>ランキング</button>
   <button type="button" data-go="sc"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/><path d="M19 15v6M16.5 18.5L19 21l2.5-2.5"/></svg>下落一覧</button>
 </nav>
 
 <script>
 (function(){
   var $ = function(id){ return document.getElementById(id); };
-  var state = { prices: [], dates: [], log: false, btZero: false, sel: null, span: 2 };
+  var state = { prices: [], dates: [], log: false, btZero: false, sel: null, span: 2, hy: 1, est: null };
   var COV = { 1:'68.3%', 2:'95.4%', 3:'99.7%' };
   var nf0 = new Intl.NumberFormat('ja-JP',{maximumFractionDigits:0});
   var nf2 = new Intl.NumberFormat('ja-JP',{maximumFractionDigits:2});
   function fmtP(v){ return v>=1000 ? nf0.format(v) : nf2.format(v); }
   function fmtC(v){ return nf0.format(Math.round(v))+'円'; }
   function pct(v){ return (v>=0?'+':'')+(v*100).toFixed(1)+'%'; }
-  function hzLabel(h){ return h===12 ? '1年後' : h+'ヶ月後'; }
+  function hzLabel(h){ if(h<12) return h+'ヶ月後'; var y = Math.floor(h/12), m = h%12; return y+'年'+(m ? m+'ヶ月' : '')+'後'; }
+  function sharpe(mu, sig, rf){ return (mu-rf)/sig; }
+  function fmtS(s){ return (s>=0?'':'−')+Math.abs(s).toFixed(2); }
 
   /* ---------- 数学 ---------- */
   function erf(x){
@@ -459,11 +517,33 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
   /* ---------- パラメータ ---------- */
   function getParams(){
     var S0 = parseFloat($('s0').value), mu = parseFloat($('mu').value)/100, sig = parseFloat($('sig').value)/100;
-    var C = parseFloat($('cap').value);
+    var C = parseFloat($('cap').value), rf = parseFloat($('rf').value)/100;
     if(!(S0>0) || !(sig>0) || isNaN(mu)) return null;
-    return { S0:S0, mu:mu, sig:sig, m: mu - sig*sig/2, C: (C>=0?C:0), f: parseInt($('freq').value,10) };
+    // 2年目以降: μ・σ² を半減期 hl 年で長期の値へ近づける
+    var muL = parseFloat($('mulr').value)/100, sigL = parseFloat($('siglr').value)/100, hl = parseFloat($('hl').value);
+    if(isNaN(muL)) muL = mu;
+    if(!(sigL>0)) sigL = sig;
+    var phi = hl>0 ? Math.pow(0.5, 1/hl) : 1, yrs = [];
+    for (var k=0;k<10;k++){
+      var w = Math.pow(phi, k);
+      yrs.push({ mu: muL + (mu-muL)*w, sig: Math.sqrt(sigL*sigL + (sig*sig-sigL*sigL)*w) });
+    }
+    return { S0:S0, mu:mu, sig:sig, m: mu - sig*sig/2, C: (C>=0?C:0), f: parseInt($('freq').value,10), rf: (isNaN(rf)?0:rf), Y: state.hy, yrs: yrs };
   }
-  function band(p,k,t){ return p.S0*Math.exp(p.m*t + k*p.sig*Math.sqrt(t)); }
+  // 時点 t(年)までの対数リターンの平均 M と分散 V。年ごとの μ・σ を区間ごとに積み上げる(yrs が無ければ一定)
+  function MV(p,t){
+    if(!p.yrs) return [p.m*t, p.sig*p.sig*t];
+    var M = 0, V = 0;
+    for (var k=0;k<p.yrs.length && t>k;k++){
+      var a = Math.min(t, k+1)-k, y = p.yrs[k];
+      M += (y.mu - y.sig*y.sig/2)*a; V += y.sig*y.sig*a;
+    }
+    if(t>p.yrs.length){ var yl = p.yrs[p.yrs.length-1], r = t-p.yrs.length; M += (yl.mu - yl.sig*yl.sig/2)*r; V += yl.sig*yl.sig*r; }
+    return [M, V];
+  }
+  function band(p,k,t){ var mv = MV(p,t); return p.S0*Math.exp(mv[0] + k*Math.sqrt(mv[1])); }
+  function median(p,t){ return p.S0*Math.exp(MV(p,t)[0]); }
+  function mean(p,t){ var mv = MV(p,t); return p.S0*Math.exp(mv[0] + mv[1]/2); }
 
   /* ---------- 再推定 ---------- */
   function reestimate(){
@@ -471,7 +551,7 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
     var f = parseInt($('freq').value,10);
     var info = $('info');
     if(!text.trim()){
-      state.prices = []; state.dates = [];
+      state.prices = []; state.dates = []; state.est = null;
       info.innerHTML = 'データ未入力です。右の値を手入力して予測できます。';
       update(); return;
     }
@@ -479,16 +559,24 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
     var prices = parsed.prices;
     state.prices = prices; state.dates = parsed.dates;
     if(prices.length<3){
+      state.est = null;
       info.innerHTML = '<span class="warn">価格を3件以上入力してください。</span>';
       update(); return;
     }
     var e = estimate(prices, f);
+    state.est = e;
+    // σ は直近の値動きが近い将来に続きやすいので、2年以上あれば1年目は直近1年、長期は全期間の値を使う
+    var sig1 = prices.length > 2*f ? estimate(prices.slice(-f-1), f).sigma : e.sigma;
+    var rf = parseFloat($('rf').value)/100 || 0;
     $('s0').value = +prices[prices.length-1].toFixed(4);
     $('mu').value = (e.mu*100).toFixed(2);
-    $('sig').value = (e.sigma*100).toFixed(2);
+    $('sig').value = (sig1*100).toFixed(2);
+    $('siglr').value = (e.sigma*100).toFixed(2);
+    $('mulr').value = ((rf + 0.3*e.sigma)*100).toFixed(2);
     var se = e.sigma/Math.sqrt(e.years);
     var yrs = e.years>=1 ? e.years.toFixed(1)+'年分' : Math.round(e.years*12)+'ヶ月分';
     var msg = '<b>'+e.n+'件</b>のリターン(約'+yrs+')から推定しました。年率リターンの推定誤差は約 <b>±'+(se*100).toFixed(1)+'%</b>(1標準誤差)です。';
+    if(sig1!==e.sigma) msg += ' σ は1年目に直近1年の '+(sig1*100).toFixed(1)+'%、長期に全期間の '+(e.sigma*100).toFixed(1)+'% を使います。';
     if(e.years<3) msg += ' <span class="warn">データが短く、μ は特に不安定です。</span>';
     info.innerHTML = msg;
     update();
@@ -496,15 +584,15 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
 
   /* ---------- 表示 ---------- */
   function renderTables(p){
-    var h = parseInt($('hz').value,10), t = h/12;
+    var h = parseInt($('hz').value,10), t = h/12, mv = MV(p,t);
     $('hzv').textContent = hzLabel(h);
     $('rtitle').textContent = hzLabel(h);
-    var s = p.sig*Math.sqrt(t);
-    var med = p.S0*Math.exp(p.m*t);
-    var pLoss = Phi(-(p.m*t)/s);
+    var s = Math.sqrt(mv[1]);
+    var med = median(p,t);
+    var pLoss = Phi(-mv[0]/s);
     $('stats').innerHTML =
-      '<div><dt>中央値(元手)</dt><dd>'+fmtC(p.C*Math.exp(p.m*t))+'</dd></div>'+
-      '<div><dt>期待値(元手)</dt><dd>'+fmtC(p.C*Math.exp(p.mu*t))+'</dd></div>'+
+      '<div><dt>中央値(元手)</dt><dd>'+fmtC(p.C*med/p.S0)+'</dd></div>'+
+      '<div><dt>期待値(元手)</dt><dd>'+fmtC(p.C*mean(p,t)/p.S0)+'</dd></div>'+
       '<div><dt>元本割れの確率</dt><dd>'+(pLoss*100).toFixed(1)+'%</dd></div>'+
       '<div><dt>期間σ(対数リターン)</dt><dd>'+(s*100).toFixed(1)+'%</dd></div>';
 
@@ -519,9 +607,9 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
     });
     $('rtable').innerHTML = '<table><thead><tr><th>範囲</th><th class="xs-hide">確率</th><th>株価</th><th>元手 '+fmtC(p.C)+'</th><th>損益率</th></tr></thead><tbody>'+rows+'</tbody></table>';
 
-    var hs = [1,3,6,12];
-    var head = '<tr><th>元手の範囲</th>'+hs.map(function(x){ return '<th>'+(x===12?'1年後':x+'ヶ月後')+'</th>'; }).join('')+'</tr>';
-    var body = '<tr><td>中央値</td>'+hs.map(function(x){ return '<td>'+fmtC(p.C*Math.exp(p.m*x/12))+'</td>'; }).join('')+'</tr>';
+    var hs = { 1:[1,3,6,12], 2:[6,12,18,24], 3:[6,12,24,36], 5:[12,24,36,48,60], 10:[12,24,36,60,84,120] }[p.Y] || [1,3,6,12];
+    var head = '<tr><th>元手の範囲</th>'+hs.map(function(x){ return '<th>'+hzLabel(x)+'</th>'; }).join('')+'</tr>';
+    var body = '<tr><td>中央値</td>'+hs.map(function(x){ return '<td>'+fmtC(p.C*median(p,x/12)/p.S0)+'</td>'; }).join('')+'</tr>';
     [1,2,3].forEach(function(k){
       body += '<tr><td>±'+k+'σ <span class="dim">'+COV[k]+'</span></td>'+hs.map(function(x){
         var tt = x/12;
@@ -529,6 +617,19 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
       }).join('')+'</tr>';
     });
     $('htable').innerHTML = '<table><thead>'+head+'</thead><tbody>'+body+'</tbody></table>';
+
+    // 1年ごとの μ・σ
+    var yrows = '';
+    for (var k=0;k<p.Y;k++){
+      var y = p.yrs[k], te = k+1, me = median(p,te), mvE = MV(p,te);
+      yrows += '<tr><td>'+te+'年目</td><td>'+(y.mu*100).toFixed(1)+'%</td><td>'+(y.sig*100).toFixed(1)+'%</td><td><b>'+fmtS(sharpe(y.mu, y.sig, p.rf))+'</b></td>'+
+        '<td>'+fmtC(p.C*me/p.S0)+'</td><td class="xs-hide">'+rg(fmtC(p.C*band(p,-1,te)/p.S0), fmtC(p.C*band(p,1,te)/p.S0))+'</td><td class="xs-hide">'+(Phi(-mvE[0]/Math.sqrt(mvE[1]))*100).toFixed(1)+'%</td></tr>';
+    }
+    $('ytable').innerHTML = '<table><thead><tr><th>期間</th><th>μ</th><th>σ</th><th>シャープ</th><th>年末の中央値(元手)</th><th class="xs-hide">年末の ±1σ(元手)</th><th class="xs-hide">元本割れの確率</th></tr></thead><tbody>'+yrows+'</tbody></table>';
+
+    var sh = '1年目の値でのシャープレシオ (μ − rf) / σ = <b>'+fmtS(sharpe(p.mu, p.sig, p.rf))+'</b>';
+    if(state.est) sh += '<br>取得期間の実績(μ '+(state.est.mu*100).toFixed(1)+'%・σ '+(state.est.sigma*100).toFixed(1)+'%)では <b>'+fmtS(sharpe(state.est.mu, state.est.sigma, p.rf))+'</b>';
+    $('shout').innerHTML = sh;
   }
 
   function niceTicks(lo,hi,n){
@@ -546,16 +647,17 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
     if(!p){ box.innerHTML = '<div class="empty">現在の株価とσを入力してください。</div>'; return; }
     var H = Math.max(300, Math.min(460, Math.round(W*0.52)));
     var mL = 58, mR = 14, mT = 14, mB = 28;
-    var hist = state.prices.slice(-p.f);
+    var Y = p.Y;
+    var hist = state.prices.slice(-p.f*Y);
     var hasHist = hist.length>1;
     var xmin = hasHist ? -(hist.length-1)/p.f : 0;
-    var N = 60, ks = [3,2,1];
+    var N = Y===1 ? 60 : Math.min(240, 24*Y), ks = [3,2,1];
     var pw = W-mL-mR, ph = H-mT-mB;
-    function xs(t){ return mL + (t-xmin)/(1-xmin)*pw; }
+    function xs(t){ return mL + (t-xmin)/(Y-xmin)*pw; }
 
     var lo = Infinity, hi = -Infinity;
     for (var j=0;j<=N;j++){
-      var t = j/N;
+      var t = j/N*Y;
       lo = Math.min(lo, band(p,-3,t)); hi = Math.max(hi, band(p,3,t));
     }
     if(hasHist){ hist.forEach(function(v){ lo=Math.min(lo,v); hi=Math.max(hi,v); }); }
@@ -565,7 +667,7 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
     var a = L?Math.log(lo):lo, b = L?Math.log(hi):hi;
     function ys(v){ return mT + (b-(L?Math.log(v):v))/(b-a)*ph; }
 
-    function curve(fn){ var pts=[]; for (var j=0;j<=N;j++){ var t=j/N; pts.push([xs(t), ys(fn(t))]); } return pts; }
+    function curve(fn){ var pts=[]; for (var j=0;j<=N;j++){ var t=j/N*Y; pts.push([xs(t), ys(fn(t))]); } return pts; }
 
     var svg = '<svg viewBox="0 0 '+W+' '+H+'" width="'+W+'" height="'+H+'" xmlns="http://www.w3.org/2000/svg" font-family="inherit">';
     // 横グリッド
@@ -574,15 +676,14 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
       svg += '<line x1="'+mL+'" x2="'+(W-mR)+'" y1="'+y.toFixed(1)+'" y2="'+y.toFixed(1)+'" stroke="var(--line)" stroke-width="1"/>';
       svg += '<text x="'+(mL-8)+'" y="'+(y+4).toFixed(1)+'" text-anchor="end" font-size="11" fill="var(--muted)">'+fmtP(v)+'</text>';
     });
-    // x目盛
-    for (var q=-4;q<=4;q++){
-      var tq = q/4;
-      if(tq<xmin-1e-9 || tq>1+1e-9 || (W<560 && q%2)) continue;
+    // x目盛(1年なら3ヶ月ごと、それ以上は半年〜2年ごと)
+    var step = Y===1 ? 0.25 : Y<=3 ? 0.5 : Y<=5 ? 1 : 2;
+    for (var q=Math.ceil(xmin/step-1e-9); q<=Math.round(Y/step); q++){
+      var tq = q*step;
+      if(W<560 && q%2) continue;
       var x = xs(tq);
-      var lab = q===0 ? '現在' : (q>0 ? '+'+(q*3)+'ヶ月' : (q*3)+'ヶ月');
-      var anchor = q===0 ? 'start' : (q===4 ? 'end' : 'middle');
-      if(q===0 && !hasHist) anchor = 'start';
-      else if(q===0) anchor = 'middle';
+      var lab = q===0 ? '現在' : (tq>0?'+':'−')+(Y===1 ? Math.abs(q*3)+'ヶ月' : Math.abs(tq)+'年');
+      var anchor = Math.abs(tq-Y)<1e-9 ? 'end' : (tq<=xmin+1e-9 ? 'start' : 'middle');
       svg += '<line x1="'+x.toFixed(1)+'" x2="'+x.toFixed(1)+'" y1="'+(H-mB)+'" y2="'+(H-mB+4)+'" stroke="var(--muted)"/>';
       svg += '<text x="'+x.toFixed(1)+'" y="'+(H-8)+'" text-anchor="'+anchor+'" font-size="11" fill="var(--muted)">'+lab+'</text>';
     }
@@ -600,8 +701,8 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
       svg += '<path d="'+path(hp)+'" fill="none" stroke="var(--hist)" stroke-width="1.6" stroke-linejoin="round"/>';
     }
     // 期待値・中央値
-    svg += '<path d="'+path(curve(function(t){ return p.S0*Math.exp(p.mu*t); }))+'" fill="none" stroke="var(--band)" stroke-width="1.6" stroke-dasharray="5 4"/>';
-    svg += '<path d="'+path(curve(function(t){ return p.S0*Math.exp(p.m*t); }))+'" fill="none" stroke="var(--ink)" stroke-width="2"/>';
+    svg += '<path d="'+path(curve(function(t){ return mean(p,t); }))+'" fill="none" stroke="var(--band)" stroke-width="1.6" stroke-dasharray="5 4"/>';
+    svg += '<path d="'+path(curve(function(t){ return median(p,t); }))+'" fill="none" stroke="var(--ink)" stroke-width="2"/>';
     // 現在値
     svg += '<circle cx="'+xs(0).toFixed(1)+'" cy="'+ys(p.S0).toFixed(1)+'" r="4" fill="var(--ink)"/>';
     // 予測期間マーカー
@@ -616,7 +717,7 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
     svg += '<text x="'+labX.toFixed(1)+'" y="'+Math.max(mT+10, up3-8).toFixed(1)+'" text-anchor="'+labAnchor+'" font-size="12" font-weight="700" fill="var(--ink)">'+hzLabel(h)+'</text>';
     svg += '</svg>';
     box.innerHTML = svg;
-    box._geo = { mL:mL, mR:mR, W:W, H:H, mT:mT, mB:mB, xmin:xmin, xs:xs, ys:ys, p:p, hist:hist, hdates:state.dates.slice(-hist.length) };
+    box._geo = { mL:mL, mR:mR, W:W, H:H, mT:mT, mB:mB, xmin:xmin, xmax:Y, xs:xs, ys:ys, p:p, hist:hist, hdates:state.dates.slice(-hist.length) };
   }
 
   function update(){
@@ -624,7 +725,7 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
     if(p){
       renderTables(p);
     } else {
-      $('stats').innerHTML = ''; $('rtable').innerHTML = '<div class="empty">現在の株価とσを入力してください。</div>'; $('htable').innerHTML = '';
+      $('stats').innerHTML = ''; $('rtable').innerHTML = '<div class="empty">現在の株価とσを入力してください。</div>'; $('htable').innerHTML = ''; $('ytable').innerHTML = ''; $('shout').innerHTML = '';
     }
     draw();
     renderBT();
@@ -751,7 +852,7 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
     svg += '<circle cx="'+xs(tOf(last)).toFixed(1)+'" cy="'+ys(P[last]).toFixed(1)+'" r="4" fill="var(--ink)"/>';
     svg += '</svg>';
     box.innerHTML = svg;
-    box._geo = { mL:mL, mR:mR, W:W, H:H, mT:mT, mB:mB, xmin:xmin, xs:xs, ys:ys, bt:bt, i0:i0 };
+    box._geo = { mL:mL, mR:mR, W:W, H:H, mT:mT, mB:mB, xmin:xmin, xmax:1, xs:xs, ys:ys, bt:bt, i0:i0 };
   }
 
   /* ---------- チャートの値表示(触った位置の価格) ---------- */
@@ -772,8 +873,8 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
   }
   function tOfPointer(box, e){
     var g = box._geo, x = e.clientX - box.getBoundingClientRect().left;
-    var t = (x - g.mL)/(g.W-g.mL-g.mR)*(1-g.xmin) + g.xmin;
-    return Math.max(g.xmin, Math.min(1, t));
+    var t = (x - g.mL)/(g.W-g.mL-g.mR)*(g.xmax-g.xmin) + g.xmin;
+    return Math.max(g.xmin, Math.min(g.xmax, t));
   }
   function rgTxt(lo, hi){ return fmtP(lo)+' 〜 '+fmtP(hi); }
   function chartTip(e){
@@ -785,8 +886,8 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
       return;
     }
     if(t < 0) t = 0;
-    var med = p.S0*Math.exp(p.m*t), mo = t*12;
-    var when = t===0 ? '現在' : (mo < 1 ? '約'+Math.max(1, Math.round(t*p.f))+'営業日後' : '約'+mo.toFixed(1)+'ヶ月後');
+    var med = median(p,t), mo = t*12;
+    var when = t===0 ? '現在' : (mo < 1 ? '約'+Math.max(1, Math.round(t*p.f))+'営業日後' : mo < 24 ? '約'+mo.toFixed(1)+'ヶ月後' : '約'+t.toFixed(1)+'年後');
     var dt = new Date(Date.now() + t*365.25*86400000);
     showTip(box, g.xs(t), g.ys(med), when+(t>0 ? ' <span class="dim">('+ymd(dt)+'頃)</span>' : '')+'<br>中央値 <b>'+fmtP(med)+'</b>'+
       (t>0 ? '<br>68%: '+rgTxt(band(p,-1,t), band(p,1,t))+'<br>95%: '+rgTxt(band(p,-2,t), band(p,2,t)) : ''));
@@ -809,9 +910,9 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
     var box = $('chart'), g = box._geo; if(!g) return;
     var r = box.getBoundingClientRect();
     var x = e.clientX - r.left;
-    var tt = (x - g.mL)/(g.W-g.mL-g.mR)*(1-g.xmin) + g.xmin;
+    var tt = (x - g.mL)/(g.W-g.mL-g.mR)*(g.xmax-g.xmin) + g.xmin;
     var h = Math.round(tt*12);
-    h = Math.max(1, Math.min(12, h));
+    h = Math.max(1, Math.min(12*g.xmax, h));
     if(h !== parseInt($('hz').value,10)){ $('hz').value = h; update(); }
   }
   $('chart').addEventListener('pointerdown', function(e){ dragging = true; setFromPointer(e); chartTip(e); });
@@ -833,6 +934,7 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
       localStorage.setItem('stockfc', JSON.stringify({
         data:$('data').value, freq:$('freq').value, order:$('order').value,
         s0:$('s0').value, mu:$('mu').value, sig:$('sig').value, cap:$('cap').value,
+        rf:$('rf').value, mulr:$('mulr').value, siglr:$('siglr').value, hl:$('hl').value, hy:state.hy, hz:$('hz').value,
         sel:state.sel, span:state.span, from:$('from').value, to:$('to').value, cname:$('cname').textContent
       }));
     }catch(e){}
@@ -844,6 +946,11 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
       $('data').value = s.data||''; $('freq').value = s.freq||'252'; $('order').value = s.order||'auto';
       if(s.s0) $('s0').value = s.s0; if(s.mu!==undefined && s.mu!=='') $('mu').value = s.mu;
       if(s.sig) $('sig').value = s.sig; if(s.cap!==undefined && s.cap!=='') $('cap').value = s.cap;
+      if(s.rf!==undefined && s.rf!=='') $('rf').value = s.rf;
+      if(s.mulr!==undefined && s.mulr!=='') $('mulr').value = s.mulr;
+      if(s.siglr) $('siglr').value = s.siglr;
+      if(s.hl!==undefined) $('hl').value = s.hl;
+      if(s.hy) setHy(s.hy, s.hz);
       if(s.sel){ state.sel = s.sel; $('tk').value = s.sel.name || ''; }
       if(s.cname) $('cname').textContent = s.cname;
       if(s.span) setSpan(s.span);
@@ -873,8 +980,22 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
   $('data').addEventListener('input', reestimate);
   $('freq').addEventListener('change', reestimate);
   $('order').addEventListener('change', reestimate);
-  ['s0','mu','sig','cap'].forEach(function(id){ $(id).addEventListener('input', update); });
+  ['s0','mu','sig','cap','mulr','siglr'].forEach(function(id){ $(id).addEventListener('input', update); });
+  $('rf').addEventListener('input', function(){ update(); renderSharpe(); });
+  $('hl').addEventListener('change', update);
   $('hz').addEventListener('input', update);
+  // 予測期間(年)。スライダーはその期間の中の表示位置
+  function setHy(y, h){
+    y = [1,2,3,5,10].indexOf(+y)>=0 ? +y : 1;
+    state.hy = y;
+    $('hz').max = 12*y;
+    $('hz').value = h && +h<=12*y ? h : 12*y;
+    [].forEach.call($('hy').querySelectorAll('button'), function(b){ b.setAttribute('aria-pressed', String(+b.getAttribute('data-y')===y)); });
+  }
+  $('hy').addEventListener('click', function(e){
+    var b = e.target.closest('button[data-y]');
+    if(b){ setHy(+b.getAttribute('data-y')); update(); }
+  });
   $('mu0').addEventListener('click', function(){ $('mu').value = 0; update(); });
   $('sample').addEventListener('click', function(){
     $('freq').value = '252'; $('order').value = 'auto';
@@ -1138,6 +1259,50 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
     io.observe($('sc'));
   } else loadScreen();
 
+  /* ---------- シャープレシオ ランキング ---------- */
+  var sr = { data: null, loading: false };
+  function loadSharpe(){
+    if(sr.loading) return;
+    sr.loading = true;
+    fetch('sharpe.json', { cache: 'no-cache' }).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+      .then(function(j){ sr.data = j; renderSharpe(); })
+      .catch(function(e){ $('srinfo').textContent = 'ランキングを読み込めませんでした('+e.message+')。'; });
+  }
+  function renderSharpe(){
+    var j = sr.data; if(!j) return;
+    var y = +$('sr-y').value, k = j.periods.indexOf(y), mk = $('sr-mk').value, N = +$('sr-n').value;
+    var rf = parseFloat($('rf').value)/100 || 0;
+    if(k<0) return;
+    var rows = [];
+    j.items.forEach(function(x){
+      var v = x[4+k];
+      if(v && v[1]>=0.05 && (!mk || x[2]===mk)) rows.push({ code:x[0], name:x[1], market:x[2], price:x[3], mu:v[0], sig:v[1], s:sharpe(v[0], v[1], rf) });
+    });
+    rows.sort(function(a,b){ return b.s-a.s; });
+    $('srinfo').innerHTML = '<b>'+esc(j.asof)+'</b> 終値時点 ・ 直近'+y+'年 ・ rf '+(rf*100).toFixed(1)+'% ・ 対象 '+rows.length+'銘柄(上位'+Math.min(N, rows.length)+'件を表示)';
+    if(!rows.length){ $('srtable').innerHTML = '<div class="empty" style="padding:20px 0">該当する銘柄はありません。</div>'; return; }
+    $('srtable').innerHTML = '<table><thead><tr><th>銘柄</th><th class="xs-hide">市場</th><th class="xs-hide">株価</th><th>μ</th><th>σ</th><th class="xs-hide">年平均成長率</th><th>シャープ</th></tr></thead><tbody>'+
+      rows.slice(0, N).map(function(x, i){
+        var g = Math.exp(x.mu - x.sig*x.sig/2)-1;
+        return '<tr class="clk" tabindex="0" data-code="'+esc(x.code)+'" data-name="'+esc(x.name)+'"><td style="white-space:normal;min-width:9em"><span class="dim">'+(i+1)+'.</span> '+esc(x.name)+' <span class="dim">'+esc(x.code)+'</span><span class="dim xs-only">'+esc(x.market)+' ・ '+fmtP(x.price)+'</span></td>'+
+          '<td class="dim xs-hide">'+esc(x.market)+'</td><td class="xs-hide">'+fmtP(x.price)+'</td><td class="'+(x.mu<0?'lo':'hi')+'">'+(x.mu*100).toFixed(1)+'%</td><td>'+(x.sig*100).toFixed(1)+'%</td>'+
+          '<td class="xs-hide">'+pct(g)+'</td><td><b>'+fmtS(x.s)+'</b></td></tr>';
+      }).join('')+'</tbody></table>';
+  }
+  function openFromSharpe(tr){
+    setSpan(+$('sr-y').value);
+    pick({ kind:'yahoo', symbol: tr.getAttribute('data-code')+'.T', name: tr.getAttribute('data-name') });
+    fetchPrices();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+  $('srtable').addEventListener('click', function(e){ var tr = e.target.closest('tr[data-code]'); if(tr) openFromSharpe(tr); });
+  $('srtable').addEventListener('keydown', function(e){ var tr = e.target.closest('tr[data-code]'); if(tr && (e.key==='Enter' || e.key===' ')){ e.preventDefault(); openFromSharpe(tr); } });
+  ['sr-y','sr-mk','sr-n'].forEach(function(id){ $(id).addEventListener('change', renderSharpe); });
+  if(typeof IntersectionObserver !== 'undefined'){
+    var sio = new IntersectionObserver(function(es){ if(es[0].isIntersecting){ sio.disconnect(); loadSharpe(); } }, { rootMargin: '400px' });
+    sio.observe($('sr'));
+  } else loadSharpe();
+
   /* ---------- スマホ用の下部タブ ---------- */
   var tabs = [].slice.call(document.querySelectorAll('.tabbar button'));
   tabs.forEach(function(b){
@@ -1168,7 +1333,9 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
     function item(dt, dd){ return '<div><dt>'+dt+'</dt><dd>'+dd+'</dd></div>'; }
     $('print-head').innerHTML = '<div class="ph-name">'+esc(name)+'</div><div class="dim">株価レンジ予測(対数正規モデル) ・ 印刷日 '+ymd(new Date())+'</div>'+
       '<dl>'+item('データ期間', esc(span)+(n ? '('+n+'件)' : ''))+
-      (p ? item('現在の株価', fmtP(p.S0))+item('期待リターン μ', (p.mu*100).toFixed(2)+'%')+item('ボラティリティ σ', (p.sig*100).toFixed(2)+'%')+item('元手', fmtC(p.C)) : '')+
+      (p ? item('現在の株価', fmtP(p.S0))+item('期待リターン μ', (p.mu*100).toFixed(2)+'%')+item('ボラティリティ σ', (p.sig*100).toFixed(2)+'%')+item('元手', fmtC(p.C))+
+        item('シャープレシオ', fmtS(sharpe(p.mu, p.sig, p.rf))+'(rf '+(p.rf*100).toFixed(1)+'%)')+item('予測期間', p.Y+'年')+
+        item('長期の μ / σ', esc($('mulr').value)+'% / '+esc($('siglr').value)+'%') : '')+
       '</dl>';
   }
   window.addEventListener('beforeprint', fillPrintHead);
@@ -1182,6 +1349,7 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
     var parsed = parsePrices($('data').value, $('order').value);
     state.prices = parsed.prices; state.dates = parsed.dates;
     var e = state.prices.length>=3 ? estimate(state.prices, parseInt($('freq').value,10)) : null;
+    state.est = e;
     if(e){
       var se = e.sigma/Math.sqrt(e.years);
       $('info').innerHTML = '<b>'+e.n+'件</b>のリターンから推定。年率リターンの推定誤差は約 <b>±'+(se*100).toFixed(1)+'%</b>(1標準誤差)です。';
