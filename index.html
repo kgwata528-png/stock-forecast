@@ -100,6 +100,7 @@ thead th { font-weight:500; color:var(--muted); font-size:12.5px; }
 tbody tr:last-child td { border-bottom:0; }
 tr.clk { cursor:pointer; }
 tr.clk:hover td, tr.clk:focus-visible td { background:var(--field); }
+tr.sel td, tr.sel td:first-child { background:var(--field); font-weight:600; }
 tr.clk:focus-visible { outline:2px solid var(--band); outline-offset:-2px; }
 .filters { display:flex; flex-wrap:wrap; gap:8px 16px; align-items:center; margin-bottom:8px; }
 .filters label { display:inline-flex; gap:6px; align-items:center; font-size:13px; }
@@ -193,7 +194,7 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
   * { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
   body { font-size:11pt; }
   .wrap { max-width:none; padding:0; }
-  header p, #print, .tabbar, #p-data, #p-param, #sc, #sr, #hy, .ctl, #chart + .legend + .hint, .btns, button, details.adv { display:none !important; }
+  header p, #print, .tabbar, #p-data, #p-param, #sc, #sr, .ctl, #chart + .legend + .hint, .btns, button, details.adv { display:none !important; }
   .grid { display:block; }
   .panel { border:0; border-radius:0; padding:0; margin:0 0 8mm !important; break-inside:avoid; }
   #p-note { break-inside:auto; }
@@ -221,7 +222,7 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
   <header>
     <div>
       <h1>株価レンジ予測</h1>
-      <p>過去の株価から、最長10年先までの株価と元手の変動範囲を対数正規分布で予測します。</p>
+      <p>過去の株価から、1年先までの株価と元手の変動範囲を対数正規分布で予測します。</p>
     </div>
     <button type="button" id="print"><svg viewBox="0 0 24 24"><path d="M6 9V3h12v6"/><rect x="3" y="9" width="18" height="8" rx="2"/><path d="M6 14h12v7H6z"/></svg>印刷</button>
   </header>
@@ -246,7 +247,7 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
           <button type="button" data-y="1">1年</button><button type="button" data-y="2">2年</button><button type="button" data-y="3">3年</button><button type="button" data-y="5">5年</button><button type="button" data-y="10">10年</button>
         </div>
         <div class="btns"><button type="button" id="fetch">適用</button></div>
-        <p class="hint" id="tkout">終値を最長10年分取得できます。1年より長く取ると「予測の検証」も表示されます。</p>
+        <p class="hint" id="tkout">終値を最長10年分取得できます。2年以上取ると「予測の検証」も表示されます(10年取ると1年ごとに9回分検証できます)。</p>
         <p class="hint" id="info"></p>
         <details class="adv" id="adv">
         <summary>データを貼り付け・サンプル</summary>
@@ -289,33 +290,10 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
           </div>
         </div>
         <div class="btns"><button type="button" id="mu0">μ を 0% にする</button></div>
-        <p class="hint">データを貼ると自動で推定して入力されます。手で書き換えた値がそのまま予測に使われます(1年目の値)。</p>
+        <p class="hint">データを貼ると自動で推定して入力されます。手で書き換えた値がそのまま予測に使われます。</p>
         <label for="rf">安全資産の利回り rf (%)</label>
         <input type="number" id="rf" step="0.1" value="0.5" inputmode="decimal">
         <p class="hint" id="shout"></p>
-        <hr class="sep">
-        <h2 style="margin-bottom:4px">2年目以降の修正</h2>
-        <p class="hint" style="margin-top:0">1年ごとに μ・σ を長期の値へ近づけて予測します。</p>
-        <div class="row2">
-          <div>
-            <label for="mulr">長期の μ (%)</label>
-            <input type="number" id="mulr" step="0.1" value="6.5" inputmode="decimal">
-          </div>
-          <div>
-            <label for="siglr">長期の σ (%)</label>
-            <input type="number" id="siglr" step="0.1" min="0.1" value="20" inputmode="decimal">
-          </div>
-        </div>
-        <label for="hl">長期の値へ戻る速さ(半減期)</label>
-        <select id="hl">
-          <option value="0.5">0.5年(速い)</option>
-          <option value="1" selected>1年</option>
-          <option value="2">2年</option>
-          <option value="3">3年</option>
-          <option value="5">5年(遅い)</option>
-          <option value="0">戻さない(1年目の値のまま)</option>
-        </select>
-        <p class="hint">データを取得すると、長期の σ には全期間の σ、長期の μ には rf + 0.3 × 長期σ(株式の長期的な平均に近いシャープレシオ 0.3 相当)が入ります。1年目の σ は、データが2年以上あれば直近1年から推定します。</p>
         <hr class="sep">
         <label for="cap">元手(円)</label>
         <input type="number" id="cap" step="10000" min="0" value="1000000" inputmode="numeric">
@@ -327,11 +305,8 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
       <section class="panel" aria-labelledby="h-chart" id="p-chart">
         <h2 id="h-chart">予測チャート<span id="cname" class="dim" style="font-weight:500"></span></h2>
         <div class="ctl">
-          <div class="seg" role="group" aria-label="予測期間" id="hy">
-            <button type="button" data-y="1" aria-pressed="true">1年</button><button type="button" data-y="2" aria-pressed="false">2年</button><button type="button" data-y="3" aria-pressed="false">3年</button><button type="button" data-y="5" aria-pressed="false">5年</button><button type="button" data-y="10" aria-pressed="false">10年</button>
-          </div>
           <div class="grow">
-            <label for="hz" style="margin:0">表示</label>
+            <label for="hz" style="margin:0">予測期間</label>
             <input type="range" id="hz" min="1" max="12" step="1" value="12">
             <strong id="hzv">1年後</strong>
           </div>
@@ -362,16 +337,10 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
       <section class="panel" aria-labelledby="h-hz" id="p-hz">
         <h2 id="h-hz">期間別の元手レンジ</h2>
         <div class="tw" id="htable"></div>
-        <div id="ywrap">
-          <hr class="sep">
-          <h2>1年ごとの μ・σ とシャープレシオ</h2>
-          <div class="tw" id="ytable"></div>
-          <p class="hint">各年の μ・σ はその1年間だけに使い、年をまたぐと次の年の値に切り替えて積み上げています。</p>
-        </div>
       </section>
 
       <section class="panel" aria-labelledby="h-bt" id="p-bt">
-        <h2 id="h-bt">予測の検証(1年前の予測 vs 実績)</h2>
+        <h2 id="h-bt">予測の検証(直前1年のデータで1年後を予測 vs 実績)</h2>
         <div class="ctl">
           <span class="dim">検証に使う μ</span>
           <div class="seg" role="group" aria-label="検証に使うμ">
@@ -379,6 +348,11 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
             <button type="button" id="bt-zero" aria-pressed="false">0%</button>
           </div>
         </div>
+        <p class="hint" id="btsuminfo"></p>
+        <dl class="stats" id="btsum"></dl>
+        <div class="tw" id="btyears" style="margin-top:12px"></div>
+        <hr class="sep">
+        <h2 id="btdtitle"></h2>
         <p class="hint" id="btinfo"></p>
         <div id="btchart" role="img" aria-label="1年前時点の予測レンジと、その後の実際の株価を重ねたチャート"></div>
         <div class="legend" id="btlegend">
@@ -436,9 +410,8 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
         <h2 id="h-note">モデルの前提と注意</h2>
         <p>株価 S は S<sub>t</sub> = S<sub>0</sub>·exp(mt + σ√t·Z)、Z は標準正規分布、m = μ − σ²/2 とします(幾何ブラウン運動)。対数リターンが正規分布に従うため、株価は対数正規分布になり、下限は 0、上側に長い裾を持ちます。</p>
         <p>kσ の範囲は S<sub>0</sub>·exp(mt ± kσ√t) です。確率は 1σ=68.27%、2σ=95.45%、3σ=99.73% です。元手の範囲は 元手 × S/S<sub>0</sub> で計算しています。</p>
-        <p>2年以上の予測では、k年目の μ<sub>k</sub> = μ<sub>長期</sub> + (μ − μ<sub>長期</sub>)·φ<sup>k−1</sup>、σ<sub>k</sub>² = σ<sub>長期</sub>² + (σ² − σ<sub>長期</sub>²)·φ<sup>k−1</sup>(φ = 0.5<sup>1/半減期</sup>)として、年ごとに値を切り替えます。時点 t までの対数リターンは平均 Σ(μ<sub>k</sub> − σ<sub>k</sub>²/2)·Δt、分散 Σσ<sub>k</sub>²·Δt の正規分布として範囲を計算します。過去の高いリターンや大きな値動きがそのまま何年も続くとは考えにくいため、長期の値へ徐々に戻す想定です。</p>
         <p>シャープレシオは (μ − rf) / σ で、リスク1単位あたりにどれだけ安全資産を上回るリターンを得たかを表します。過去のシャープレシオが高くても将来も高いとは限りません。</p>
-        <p>「予測の検証」は、データ末尾から1年分(日次なら252件)を「実績」として隠し、それより前のデータだけで μ・σ を推定して1年前時点から予測したものと実績を比べます。位置(σ)は (ln(実績/予測時点の株価) − mt) / (σ√t) で、0 なら中央値どおり、±1 以内に収まる確率が約68%です。1回の検証だけでは偶然の影響が大きいので、複数銘柄で確かめるのがおすすめです。</p>
+        <p>「予測の検証」は、データを今日から1年ごとに区切り、各年の始めの時点で、その直前1年のデータだけから μ・σ を推定して1年後までを予測し、実績と比べます(画面上の予測と同じ「過去1年 → 1年後」の形)。位置(σ)は (ln(実績/予測時点の株価) − mt) / (σ√t) で、0 なら中央値どおり、±1 以内に収まる確率が約68%です。1年後の位置が ±1σ に入った割合が68%、±2σ が95% に近ければ、予測の幅は妥当だったと言えます。回数が少ないと偶然の影響が大きいので、10年分取得したり複数銘柄で確かめるのがおすすめです。</p>
         <p>過去の平均リターンの推定誤差は大きく、データが短いほど不安定です。実際の株価は μ・σ が一定でなく、暴落など3σを超える動きも正規分布の想定より起こりやすいです。配当・手数料・税は考慮していません。投資判断の助言ではありません。</p>
       </section>
     </main>
@@ -456,7 +429,7 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
 <script>
 (function(){
   var $ = function(id){ return document.getElementById(id); };
-  var state = { prices: [], dates: [], log: false, btZero: false, sel: null, span: 2, hy: 1, est: null };
+  var state = { prices: [], dates: [], log: false, btZero: false, btSel: 0, sel: null, span: 2 };
   var COV = { 1:'68.3%', 2:'95.4%', 3:'99.7%' };
   var nf0 = new Intl.NumberFormat('ja-JP',{maximumFractionDigits:0});
   var nf2 = new Intl.NumberFormat('ja-JP',{maximumFractionDigits:2});
@@ -519,31 +492,11 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
     var S0 = parseFloat($('s0').value), mu = parseFloat($('mu').value)/100, sig = parseFloat($('sig').value)/100;
     var C = parseFloat($('cap').value), rf = parseFloat($('rf').value)/100;
     if(!(S0>0) || !(sig>0) || isNaN(mu)) return null;
-    // 2年目以降: μ・σ² を半減期 hl 年で長期の値へ近づける
-    var muL = parseFloat($('mulr').value)/100, sigL = parseFloat($('siglr').value)/100, hl = parseFloat($('hl').value);
-    if(isNaN(muL)) muL = mu;
-    if(!(sigL>0)) sigL = sig;
-    var phi = hl>0 ? Math.pow(0.5, 1/hl) : 1, yrs = [];
-    for (var k=0;k<10;k++){
-      var w = Math.pow(phi, k);
-      yrs.push({ mu: muL + (mu-muL)*w, sig: Math.sqrt(sigL*sigL + (sig*sig-sigL*sigL)*w) });
-    }
-    return { S0:S0, mu:mu, sig:sig, m: mu - sig*sig/2, C: (C>=0?C:0), f: parseInt($('freq').value,10), rf: (isNaN(rf)?0:rf), Y: state.hy, yrs: yrs };
+    return { S0:S0, mu:mu, sig:sig, m: mu - sig*sig/2, C: (C>=0?C:0), f: parseInt($('freq').value,10), rf: (isNaN(rf)?0:rf) };
   }
-  // 時点 t(年)までの対数リターンの平均 M と分散 V。年ごとの μ・σ を区間ごとに積み上げる(yrs が無ければ一定)
-  function MV(p,t){
-    if(!p.yrs) return [p.m*t, p.sig*p.sig*t];
-    var M = 0, V = 0;
-    for (var k=0;k<p.yrs.length && t>k;k++){
-      var a = Math.min(t, k+1)-k, y = p.yrs[k];
-      M += (y.mu - y.sig*y.sig/2)*a; V += y.sig*y.sig*a;
-    }
-    if(t>p.yrs.length){ var yl = p.yrs[p.yrs.length-1], r = t-p.yrs.length; M += (yl.mu - yl.sig*yl.sig/2)*r; V += yl.sig*yl.sig*r; }
-    return [M, V];
-  }
-  function band(p,k,t){ var mv = MV(p,t); return p.S0*Math.exp(mv[0] + k*Math.sqrt(mv[1])); }
-  function median(p,t){ return p.S0*Math.exp(MV(p,t)[0]); }
-  function mean(p,t){ var mv = MV(p,t); return p.S0*Math.exp(mv[0] + mv[1]/2); }
+  function band(p,k,t){ return p.S0*Math.exp(p.m*t + k*p.sig*Math.sqrt(t)); }
+  function median(p,t){ return p.S0*Math.exp(p.m*t); }
+  function mean(p,t){ return p.S0*Math.exp(p.mu*t); }
 
   /* ---------- 再推定 ---------- */
   function reestimate(){
@@ -551,7 +504,7 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
     var f = parseInt($('freq').value,10);
     var info = $('info');
     if(!text.trim()){
-      state.prices = []; state.dates = []; state.est = null;
+      state.prices = []; state.dates = [];
       info.innerHTML = 'データ未入力です。右の値を手入力して予測できます。';
       update(); return;
     }
@@ -559,37 +512,30 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
     var prices = parsed.prices;
     state.prices = prices; state.dates = parsed.dates;
     if(prices.length<3){
-      state.est = null;
       info.innerHTML = '<span class="warn">価格を3件以上入力してください。</span>';
       update(); return;
     }
-    var e = estimate(prices, f);
-    state.est = e;
-    // σ は直近の値動きが近い将来に続きやすいので、2年以上あれば1年目は直近1年、長期は全期間の値を使う
-    var sig1 = prices.length > 2*f ? estimate(prices.slice(-f-1), f).sigma : e.sigma;
-    var rf = parseFloat($('rf').value)/100 || 0;
+    // 予測は直近1年のデータだけで推定する(1年分に満たなければ全部)
+    var S = yearBack(prices.length-1), e = estimate(prices.slice(Math.max(0, S)), f);
     $('s0').value = +prices[prices.length-1].toFixed(4);
     $('mu').value = (e.mu*100).toFixed(2);
-    $('sig').value = (sig1*100).toFixed(2);
-    $('siglr').value = (e.sigma*100).toFixed(2);
-    $('mulr').value = ((rf + 0.3*e.sigma)*100).toFixed(2);
+    $('sig').value = (e.sigma*100).toFixed(2);
     var se = e.sigma/Math.sqrt(e.years);
     var yrs = e.years>=1 ? e.years.toFixed(1)+'年分' : Math.round(e.years*12)+'ヶ月分';
-    var msg = '<b>'+e.n+'件</b>のリターン(約'+yrs+')から推定しました。年率リターンの推定誤差は約 <b>±'+(se*100).toFixed(1)+'%</b>(1標準誤差)です。';
-    if(sig1!==e.sigma) msg += ' σ は1年目に直近1年の '+(sig1*100).toFixed(1)+'%、長期に全期間の '+(e.sigma*100).toFixed(1)+'% を使います。';
-    if(e.years<3) msg += ' <span class="warn">データが短く、μ は特に不安定です。</span>';
+    var msg = (S>0 ? '直近1年の ' : '')+'<b>'+e.n+'件</b>のリターン(約'+yrs+')から推定しました。年率リターンの推定誤差は約 <b>±'+(se*100).toFixed(1)+'%</b>(1標準誤差)です。';
+    if(e.years<3) msg += ' <span class="warn">1年分のデータでは μ の推定誤差がとても大きいので、下の「予測の検証」で当たり具合を確かめてください。</span>';
     info.innerHTML = msg;
     update();
   }
 
   /* ---------- 表示 ---------- */
   function renderTables(p){
-    var h = parseInt($('hz').value,10), t = h/12, mv = MV(p,t);
+    var h = parseInt($('hz').value,10), t = h/12;
     $('hzv').textContent = hzLabel(h);
     $('rtitle').textContent = hzLabel(h);
-    var s = Math.sqrt(mv[1]);
+    var s = p.sig*Math.sqrt(t);
     var med = median(p,t);
-    var pLoss = Phi(-mv[0]/s);
+    var pLoss = Phi(-(p.m*t)/s);
     $('stats').innerHTML =
       '<div><dt>中央値(元手)</dt><dd>'+fmtC(p.C*med/p.S0)+'</dd></div>'+
       '<div><dt>期待値(元手)</dt><dd>'+fmtC(p.C*mean(p,t)/p.S0)+'</dd></div>'+
@@ -607,7 +553,7 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
     });
     $('rtable').innerHTML = '<table><thead><tr><th>範囲</th><th class="xs-hide">確率</th><th>株価</th><th>元手 '+fmtC(p.C)+'</th><th>損益率</th></tr></thead><tbody>'+rows+'</tbody></table>';
 
-    var hs = { 1:[1,3,6,12], 2:[6,12,18,24], 3:[6,12,24,36], 5:[12,24,36,48,60], 10:[12,24,36,60,84,120] }[p.Y] || [1,3,6,12];
+    var hs = [1,3,6,12];
     var head = '<tr><th>元手の範囲</th>'+hs.map(function(x){ return '<th>'+hzLabel(x)+'</th>'; }).join('')+'</tr>';
     var body = '<tr><td>中央値</td>'+hs.map(function(x){ return '<td>'+fmtC(p.C*median(p,x/12)/p.S0)+'</td>'; }).join('')+'</tr>';
     [1,2,3].forEach(function(k){
@@ -618,18 +564,7 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
     });
     $('htable').innerHTML = '<table><thead>'+head+'</thead><tbody>'+body+'</tbody></table>';
 
-    // 1年ごとの μ・σ
-    var yrows = '';
-    for (var k=0;k<p.Y;k++){
-      var y = p.yrs[k], te = k+1, me = median(p,te), mvE = MV(p,te);
-      yrows += '<tr><td>'+te+'年目</td><td>'+(y.mu*100).toFixed(1)+'%</td><td>'+(y.sig*100).toFixed(1)+'%</td><td><b>'+fmtS(sharpe(y.mu, y.sig, p.rf))+'</b></td>'+
-        '<td>'+fmtC(p.C*me/p.S0)+'</td><td class="xs-hide">'+rg(fmtC(p.C*band(p,-1,te)/p.S0), fmtC(p.C*band(p,1,te)/p.S0))+'</td><td class="xs-hide">'+(Phi(-mvE[0]/Math.sqrt(mvE[1]))*100).toFixed(1)+'%</td></tr>';
-    }
-    $('ytable').innerHTML = '<table><thead><tr><th>期間</th><th>μ</th><th>σ</th><th>シャープ</th><th>年末の中央値(元手)</th><th class="xs-hide">年末の ±1σ(元手)</th><th class="xs-hide">元本割れの確率</th></tr></thead><tbody>'+yrows+'</tbody></table>';
-
-    var sh = '1年目の値でのシャープレシオ (μ − rf) / σ = <b>'+fmtS(sharpe(p.mu, p.sig, p.rf))+'</b>';
-    if(state.est) sh += '<br>取得期間の実績(μ '+(state.est.mu*100).toFixed(1)+'%・σ '+(state.est.sigma*100).toFixed(1)+'%)では <b>'+fmtS(sharpe(state.est.mu, state.est.sigma, p.rf))+'</b>';
-    $('shout').innerHTML = sh;
+    $('shout').innerHTML = 'シャープレシオ (μ − rf) / σ = <b>'+fmtS(sharpe(p.mu, p.sig, p.rf))+'</b>';
   }
 
   function niceTicks(lo,hi,n){
@@ -647,11 +582,11 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
     if(!p){ box.innerHTML = '<div class="empty">現在の株価とσを入力してください。</div>'; return; }
     var H = Math.max(300, Math.min(460, Math.round(W*0.52)));
     var mL = 58, mR = 14, mT = 14, mB = 28;
-    var Y = p.Y;
-    var hist = state.prices.slice(-p.f*Y);
+    var Y = 1;
+    var hist = state.prices.slice(-p.f);
     var hasHist = hist.length>1;
     var xmin = hasHist ? -(hist.length-1)/p.f : 0;
-    var N = Y===1 ? 60 : Math.min(240, 24*Y), ks = [3,2,1];
+    var N = 60, ks = [3,2,1];
     var pw = W-mL-mR, ph = H-mT-mB;
     function xs(t){ return mL + (t-xmin)/(Y-xmin)*pw; }
 
@@ -676,13 +611,13 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
       svg += '<line x1="'+mL+'" x2="'+(W-mR)+'" y1="'+y.toFixed(1)+'" y2="'+y.toFixed(1)+'" stroke="var(--line)" stroke-width="1"/>';
       svg += '<text x="'+(mL-8)+'" y="'+(y+4).toFixed(1)+'" text-anchor="end" font-size="11" fill="var(--muted)">'+fmtP(v)+'</text>';
     });
-    // x目盛(1年なら3ヶ月ごと、それ以上は半年〜2年ごと)
-    var step = Y===1 ? 0.25 : Y<=3 ? 0.5 : Y<=5 ? 1 : 2;
+    // x目盛(3ヶ月ごと)
+    var step = 0.25;
     for (var q=Math.ceil(xmin/step-1e-9); q<=Math.round(Y/step); q++){
       var tq = q*step;
       if(W<560 && q%2) continue;
       var x = xs(tq);
-      var lab = q===0 ? '現在' : (tq>0?'+':'−')+(Y===1 ? Math.abs(q*3)+'ヶ月' : Math.abs(tq)+'年');
+      var lab = q===0 ? '現在' : (tq>0?'+':'−')+Math.abs(q*3)+'ヶ月';
       var anchor = Math.abs(tq-Y)<1e-9 ? 'end' : (tq<=xmin+1e-9 ? 'start' : 'middle');
       svg += '<line x1="'+x.toFixed(1)+'" x2="'+x.toFixed(1)+'" y1="'+(H-mB)+'" y2="'+(H-mB+4)+'" stroke="var(--muted)"/>';
       svg += '<text x="'+x.toFixed(1)+'" y="'+(H-8)+'" text-anchor="'+anchor+'" font-size="11" fill="var(--muted)">'+lab+'</text>';
@@ -725,7 +660,7 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
     if(p){
       renderTables(p);
     } else {
-      $('stats').innerHTML = ''; $('rtable').innerHTML = '<div class="empty">現在の株価とσを入力してください。</div>'; $('htable').innerHTML = ''; $('ytable').innerHTML = ''; $('shout').innerHTML = '';
+      $('stats').innerHTML = ''; $('rtable').innerHTML = '<div class="empty">現在の株価とσを入力してください。</div>'; $('htable').innerHTML = ''; $('shout').innerHTML = '';
     }
     draw();
     renderBT();
@@ -733,22 +668,44 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
   }
 
   /* ---------- 予測の検証(バックテスト) ---------- */
-  // 末尾1年分を「実績」として隠し、それより前のデータだけで推定した1年前時点の予測と比べる
-  function backtest(){
-    var f = parseInt($('freq').value,10), P = state.prices, n = P.length, T0 = n-1-f;
-    if(T0 < 20) return null;
-    var est = estimate(P.slice(0, T0+1), f);
+  // データを末尾から1年ごとに区切り、各年について「その直前1年のデータだけ」で推定した μ・σ で1年後を予測し、実績と比べる
+  // i のちょうど1年前(以前で最も近い日)の位置。日付が無ければ f 件前。データが足りなければ -1
+  function yearBack(i){
+    var f = parseInt($('freq').value,10), d = state.dates;
+    function ms(k){ return d[k] ? Date.parse(String(d[k]).replace(/\//g,'-')) : NaN; }
+    if(isNaN(ms(0)) || isNaN(ms(i))) return i-f;
+    var t = new Date(ms(i)); t.setFullYear(t.getFullYear()-1);
+    var tm = t.getTime();
+    if(ms(0) > tm + 7*86400000) return -1;
+    for (var j=i-1;j>0;j--) if(ms(j) <= tm) return j;
+    return 0;
+  }
+  function btWindows(){
+    var back = yearBack, n = state.prices.length;
+    var out = [], E = n-1;
+    while(E > 0){
+      var T0 = back(E); if(T0 < 0 || E-T0 < 2) break;
+      var S = back(T0); if(S < 0 || T0-S < 20) break;
+      out.push(runBT(S, T0, E));
+      E = T0;
+    }
+    return out;
+  }
+  function runBT(S, T0, E){
+    var f = parseInt($('freq').value,10), P = state.prices;
+    var est = estimate(P.slice(S, T0+1), f);
     var mu = state.btZero ? 0 : est.mu, C = parseFloat($('cap').value);
     var p = { S0:P[T0], mu:mu, sig:est.sigma, m: mu - est.sigma*est.sigma/2, f:f, C: (C>=0?C:0) };
     var in1 = 0, in2 = 0, z = 0;
-    for (var i=T0+1;i<n;i++){
+    for (var i=T0+1;i<=E;i++){
       var t = (i-T0)/f;
       z = (Math.log(P[i]/p.S0) - p.m*t)/(p.sig*Math.sqrt(t));
       if(Math.abs(z)<=1) in1++;
       if(Math.abs(z)<=2) in2++;
     }
-    return { T0:T0, n:n, f:f, p:p, est:est, real: estimate(P.slice(T0), f), in1: in1/f, in2: in2/f, zEnd: z };
+    return { S:S, T0:T0, E:E, f:f, p:p, est:est, real: estimate(P.slice(T0, E+1), f), in1: in1/(E-T0), in2: in2/(E-T0), zEnd: z };
   }
+  function backtest(){ var ws = btWindows(); return ws[Math.min(state.btSel, ws.length-1)] || null; }
   function zOf(bt, i){ var p = bt.p, t = (i-bt.T0)/bt.f; return (Math.log(state.prices[i]/p.S0) - p.m*t)/(p.sig*Math.sqrt(t)); }
   function judge(z){
     var a = Math.abs(z);
@@ -759,21 +716,46 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
   }
   function dateAt(i){ return state.dates[i] || ''; }
 
+  function winLabel(w){
+    var a = dateAt(w.T0), b = dateAt(w.E);
+    return a && b ? a.slice(0,7).replace('-','/')+' → '+b.slice(0,7).replace('-','/') : (w.T0+'件目 → '+w.E+'件目');
+  }
   function renderBT(){
-    var bt = backtest();
-    if(!bt){
-      $('btinfo').innerHTML = '検証には「1年分 + それ以前のデータ」が必要です(日次なら約273件以上)。期間を<b>2年以上</b>にして取得するか、2年分以上のデータを貼り付けてください。';
+    var ws = btWindows();
+    if(!ws.length){
+      $('btsuminfo').innerHTML = '検証には「推定用の1年 + 検証用の1年」の<b>2年分以上</b>のデータが必要です。期間を長く(おすすめは<b>10年</b>)して取得すると、1年ごとに何回分も検証できます。';
+      $('btsum').innerHTML = ''; $('btyears').innerHTML = ''; $('btdtitle').textContent = ''; $('btinfo').innerHTML = '';
       $('btchart').innerHTML = ''; $('btlegend').hidden = true; $('btstats').innerHTML = ''; $('bttable').innerHTML = '';
       return;
     }
-    $('btlegend').hidden = false;
-    var p = bt.p, P = state.prices, last = bt.n-1;
-    var d0 = dateAt(bt.T0), estYrs = bt.est.years>=1 ? bt.est.years.toFixed(1)+'年分' : Math.round(bt.est.years*12)+'ヶ月分';
-    $('btinfo').innerHTML = (d0 ? '<b>'+esc(d0)+'</b>' : '1年前')+'時点(株価 '+fmtP(p.S0)+')までの '+bt.T0+'件のリターン(約'+estYrs+')だけで '+
-      'μ='+(p.mu*100).toFixed(2)+'%'+(state.btZero ? '(0%に固定)' : '')+'、σ='+(p.sig*100).toFixed(2)+'% と推定し、その後1年間('+bt.f+'件)の実績と比べています。';
-
-    var t1 = 1, medEnd = p.S0*Math.exp(p.m*t1), act = P[last];
+    if(state.btSel >= ws.length) state.btSel = 0;
+    var K = ws.length, n1 = 0, n2 = 0, sIn1 = 0, sAbs = 0;
+    ws.forEach(function(w){ var a = Math.abs(w.zEnd); if(a<=1) n1++; if(a<=2) n2++; sIn1 += w.in1; sAbs += a; });
     function tile(dt, dd, sm){ return '<div><dt>'+dt+'</dt><dd'+(sm?' class="sm"':'')+'>'+dd+'</dd></div>'; }
+    $('btsuminfo').innerHTML = 'データを今日から1年ごとに区切り、各年の始めの時点で<b>その直前1年のデータだけ</b>から μ'+(state.btZero ? '(0%に固定)' : '')+'・σ を推定して1年後を予測し、実績と比べました。';
+    $('btsum').innerHTML =
+      tile('検証した年数', K+'回')+
+      tile('1年後が ±1σ 内', n1+' / '+K+' <span class="dim">'+(n1/K*100).toFixed(0)+'%(想定68%)</span>')+
+      tile('1年後が ±2σ 内', n2+' / '+K+' <span class="dim">'+(n2/K*100).toFixed(0)+'%(想定95%)</span>')+
+      tile('1年後の位置 |σ| の平均', (sAbs/K).toFixed(2)+'σ <span class="dim">想定0.80</span>');
+    $('btyears').innerHTML = '<table><thead><tr><th>予測期間</th><th class="xs-hide">推定 μ / σ</th><th>予測中央値</th><th>実績</th><th class="xs-hide">±1σ内にいた割合</th><th>1年後の位置</th><th class="xs-hide">判定</th></tr></thead><tbody>'+
+      ws.map(function(w, i){
+        var q = w.p, med = q.S0*Math.exp(q.m*(w.E-w.T0)/w.f), act = state.prices[w.E];
+        return '<tr class="clk'+(i===state.btSel?' sel':'')+'" tabindex="0" data-w="'+i+'" aria-selected="'+(i===state.btSel)+'"><td>'+esc(winLabel(w))+'</td>'+
+          '<td class="dim xs-hide">'+(q.mu*100).toFixed(0)+'% / '+(q.sig*100).toFixed(0)+'%</td>'+
+          '<td>'+pct(med/q.S0-1)+'</td><td class="'+(act>=q.S0?'hi':'lo')+'">'+pct(act/q.S0-1)+'</td>'+
+          '<td class="xs-hide">'+(w.in1*100).toFixed(0)+'%</td><td><b>'+(w.zEnd>=0?'+':'')+w.zEnd.toFixed(2)+'σ</b><span class="xs-only">'+judge(w.zEnd)+'</span></td><td class="xs-hide">'+judge(w.zEnd)+'</td></tr>';
+      }).join('')+'</tbody></table><p class="hint">予測中央値・実績は予測時点の株価からの騰落率です。行を選ぶと、その年の詳細を下に表示します。</p>';
+
+    var bt = ws[state.btSel];
+    $('btlegend').hidden = false;
+    $('btdtitle').textContent = '詳細: '+winLabel(bt);
+    var p = bt.p, P = state.prices, last = bt.E;
+    var d0 = dateAt(bt.T0), dS = dateAt(bt.S);
+    $('btinfo').innerHTML = (dS ? esc(dS)+' 〜 ' : '')+(d0 ? '<b>'+esc(d0)+'</b>' : '予測時点')+'(株価 '+fmtP(p.S0)+')の1年間、'+(bt.T0-bt.S)+'件のリターンだけで '+
+      'μ='+(p.mu*100).toFixed(2)+'%'+(state.btZero ? '(0%に固定)' : '')+'、σ='+(p.sig*100).toFixed(2)+'% と推定し、その後1年間('+(bt.E-bt.T0)+'件)の実績と比べています。';
+
+    var t1 = (bt.E-bt.T0)/bt.f, medEnd = p.S0*Math.exp(p.m*t1), act = P[last];
     $('btstats').innerHTML =
       tile('1年後の予測中央値', fmtP(medEnd)+' <span class="dim">'+pct(medEnd/p.S0-1)+'</span>')+
       tile('1年後の実績', '<span class="'+(act>=p.S0?'hi':'lo')+'">'+fmtP(act)+'</span> <span class="dim">'+pct(act/p.S0-1)+'</span>')+
@@ -800,10 +782,10 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
     var box = $('btchart'), W = box.clientWidth;
     if(bt===undefined) bt = backtest();
     if(!W || !bt) return;
-    var p = bt.p, P = state.prices, T0 = bt.T0, f = bt.f, last = bt.n-1;
+    var p = bt.p, P = state.prices, T0 = bt.T0, f = bt.f, last = bt.E;
     var H = Math.max(280, Math.min(420, Math.round(W*0.46)));
     var mL = 58, mR = 14, mT = 14, mB = 28, pw = W-mL-mR, ph = H-mT-mB, N = 60;
-    var i0 = Math.max(0, T0-f), xmin = -(T0-i0)/f;
+    var i0 = bt.S, xmin = -(T0-i0)/f;
     function tOf(i){ return (i-T0)/f; }
     function xs(t){ return mL + (t-xmin)/(1-xmin)*pw; }
     var lo = Infinity, hi = -Infinity;
@@ -895,7 +877,7 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
   function btTip(e){
     var box = $('btchart'), g = box._geo; if(!g || !g.bt) return;
     var bt = g.bt, p = bt.p, P = state.prices;
-    var i = Math.max(g.i0, Math.min(bt.n-1, bt.T0 + Math.round(tOfPointer(box, e)*bt.f))), t = (i-bt.T0)/bt.f;
+    var i = Math.max(g.i0, Math.min(bt.E, bt.T0 + Math.round(tOfPointer(box, e)*bt.f))), t = (i-bt.T0)/bt.f;
     var html = (dateAt(i) ? esc(dateAt(i))+' ' : '')+(i<=bt.T0 ? '終値' : '実績')+'<br><b>'+fmtP(P[i])+'</b>';
     if(i > bt.T0){
       var z = zOf(bt, i);
@@ -934,7 +916,7 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
       localStorage.setItem('stockfc', JSON.stringify({
         data:$('data').value, freq:$('freq').value, order:$('order').value,
         s0:$('s0').value, mu:$('mu').value, sig:$('sig').value, cap:$('cap').value,
-        rf:$('rf').value, mulr:$('mulr').value, siglr:$('siglr').value, hl:$('hl').value, hy:state.hy, hz:$('hz').value,
+        rf:$('rf').value,
         sel:state.sel, span:state.span, from:$('from').value, to:$('to').value, cname:$('cname').textContent
       }));
     }catch(e){}
@@ -947,10 +929,6 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
       if(s.s0) $('s0').value = s.s0; if(s.mu!==undefined && s.mu!=='') $('mu').value = s.mu;
       if(s.sig) $('sig').value = s.sig; if(s.cap!==undefined && s.cap!=='') $('cap').value = s.cap;
       if(s.rf!==undefined && s.rf!=='') $('rf').value = s.rf;
-      if(s.mulr!==undefined && s.mulr!=='') $('mulr').value = s.mulr;
-      if(s.siglr) $('siglr').value = s.siglr;
-      if(s.hl!==undefined) $('hl').value = s.hl;
-      if(s.hy) setHy(s.hy, s.hz);
       if(s.sel){ state.sel = s.sel; $('tk').value = s.sel.name || ''; }
       if(s.cname) $('cname').textContent = s.cname;
       if(s.span) setSpan(s.span);
@@ -980,22 +958,9 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
   $('data').addEventListener('input', reestimate);
   $('freq').addEventListener('change', reestimate);
   $('order').addEventListener('change', reestimate);
-  ['s0','mu','sig','cap','mulr','siglr'].forEach(function(id){ $(id).addEventListener('input', update); });
+  ['s0','mu','sig','cap'].forEach(function(id){ $(id).addEventListener('input', update); });
   $('rf').addEventListener('input', function(){ update(); renderSharpe(); });
-  $('hl').addEventListener('change', update);
   $('hz').addEventListener('input', update);
-  // 予測期間(年)。スライダーはその期間の中の表示位置
-  function setHy(y, h){
-    y = [1,2,3,5,10].indexOf(+y)>=0 ? +y : 1;
-    state.hy = y;
-    $('hz').max = 12*y;
-    $('hz').value = h && +h<=12*y ? h : 12*y;
-    [].forEach.call($('hy').querySelectorAll('button'), function(b){ b.setAttribute('aria-pressed', String(+b.getAttribute('data-y')===y)); });
-  }
-  $('hy').addEventListener('click', function(e){
-    var b = e.target.closest('button[data-y]');
-    if(b){ setHy(+b.getAttribute('data-y')); update(); }
-  });
   $('mu0').addEventListener('click', function(){ $('mu').value = 0; update(); });
   $('sample').addEventListener('click', function(){
     $('freq').value = '252'; $('order').value = 'auto';
@@ -1012,6 +977,9 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
   function setBtMu(zero){ state.btZero = zero; $('bt-est').setAttribute('aria-pressed', String(!zero)); $('bt-zero').setAttribute('aria-pressed', String(zero)); renderBT(); }
   $('bt-est').addEventListener('click', function(){ setBtMu(false); });
   $('bt-zero').addEventListener('click', function(){ setBtMu(true); });
+  function selWin(tr){ state.btSel = +tr.getAttribute('data-w'); renderBT(); }
+  $('btyears').addEventListener('click', function(e){ var tr = e.target.closest('tr[data-w]'); if(tr) selWin(tr); });
+  $('btyears').addEventListener('keydown', function(e){ var tr = e.target.closest('tr[data-w]'); if(tr && (e.key==='Enter' || e.key===' ')){ e.preventDefault(); selWin(tr); } });
 
   if(typeof ResizeObserver !== 'undefined'){ var lastW = 0, ro = new ResizeObserver(function(){ var w = $('chart').clientWidth; if(w!==lastW){ lastW = w; draw(); drawBT(); } }); ro.observe($('chart')); }
   else window.addEventListener('resize', function(){ draw(); drawBT(); });
@@ -1334,8 +1302,7 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
     $('print-head').innerHTML = '<div class="ph-name">'+esc(name)+'</div><div class="dim">株価レンジ予測(対数正規モデル) ・ 印刷日 '+ymd(new Date())+'</div>'+
       '<dl>'+item('データ期間', esc(span)+(n ? '('+n+'件)' : ''))+
       (p ? item('現在の株価', fmtP(p.S0))+item('期待リターン μ', (p.mu*100).toFixed(2)+'%')+item('ボラティリティ σ', (p.sig*100).toFixed(2)+'%')+item('元手', fmtC(p.C))+
-        item('シャープレシオ', fmtS(sharpe(p.mu, p.sig, p.rf))+'(rf '+(p.rf*100).toFixed(1)+'%)')+item('予測期間', p.Y+'年')+
-        item('長期の μ / σ', esc($('mulr').value)+'% / '+esc($('siglr').value)+'%') : '')+
+        item('シャープレシオ', fmtS(sharpe(p.mu, p.sig, p.rf))+'(rf '+(p.rf*100).toFixed(1)+'%)') : '')+
       '</dl>';
   }
   window.addEventListener('beforeprint', fillPrintHead);
@@ -1348,8 +1315,7 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
     var keep = { s0:$('s0').value, mu:$('mu').value, sig:$('sig').value };
     var parsed = parsePrices($('data').value, $('order').value);
     state.prices = parsed.prices; state.dates = parsed.dates;
-    var e = state.prices.length>=3 ? estimate(state.prices, parseInt($('freq').value,10)) : null;
-    state.est = e;
+    var e = state.prices.length>=3 ? estimate(state.prices.slice(Math.max(0, yearBack(state.prices.length-1))), parseInt($('freq').value,10)) : null;
     if(e){
       var se = e.sigma/Math.sqrt(e.years);
       $('info').innerHTML = '<b>'+e.n+'件</b>のリターンから推定。年率リターンの推定誤差は約 <b>±'+(se*100).toFixed(1)+'%</b>(1標準誤差)です。';
