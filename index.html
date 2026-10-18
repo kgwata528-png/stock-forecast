@@ -78,7 +78,7 @@ button[aria-pressed=true] { background:var(--band); border-color:var(--band); co
 #chart { width:100%; touch-action:pan-y; cursor:ew-resize; user-select:none; -webkit-user-select:none; }
 #chart svg { display:block; width:100%; }
 .legend { display:flex; flex-wrap:wrap; gap:6px 16px; font-size:12.5px; color:var(--muted); margin-top:8px; }
-.legend[hidden] { display:none; }
+.legend[hidden], .legend span[hidden] { display:none; }
 .legend span { display:inline-flex; align-items:center; gap:6px; }
 .sw { width:16px; height:10px; display:inline-block; border-radius:2px; background:var(--band); }
 .ln { width:18px; height:0; border-top:2px solid var(--ink); display:inline-block; }
@@ -86,6 +86,7 @@ button[aria-pressed=true] { background:var(--band); border-color:var(--band); co
 .ln.h { border-top:2px solid var(--hist); }
 .ln.a { border-top:2.5px solid var(--ink); }
 .ln.m { border-top:2px solid var(--band); }
+.tg { width:9px; height:9px; display:inline-block; background:var(--loss); transform:rotate(45deg); }
 dl.stats dd.sm { font-size:15px; }
 #btchart svg { display:block; width:100%; }
 dl.stats { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; margin:0; }
@@ -323,8 +324,15 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
           <span><i class="ln"></i>中央値</span>
           <span><i class="ln d"></i>期待値(平均)</span>
           <span><i class="ln h"></i>実績</span>
+          <span id="tgtleg" hidden><i class="tg"></i>アナリスト目標株価(平均・最低〜最高)</span>
         </div>
         <p class="hint">チャートをなぞると予測期間を変更できます。</p>
+        <div id="tgtbox" hidden>
+          <hr class="sep">
+          <h2>アナリストの目標株価(1年後の予測と比べて)</h2>
+          <dl class="stats" id="tgtstats"></dl>
+          <p class="hint" id="tgtnote"></p>
+        </div>
       </section>
 
       <section class="panel" aria-labelledby="h-range" id="p-range">
@@ -596,6 +604,8 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
       lo = Math.min(lo, band(p,-3,t)); hi = Math.max(hi, band(p,3,t));
     }
     if(hasHist){ hist.forEach(function(v){ lo=Math.min(lo,v); hi=Math.max(hi,v); }); }
+    var tg = curTgt();
+    if(tg){ [tg.low, tg.high, tg.mean].forEach(function(v){ if(v>0){ lo=Math.min(lo,v); hi=Math.max(hi,v); } }); }
     var pad = (hi-lo)*0.04;
     lo = Math.max(lo-pad, lo*0.5); hi = hi+pad;
     var L = state.log;
@@ -650,6 +660,14 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
     var up3 = ys(band(p,3,th));
     var labAnchor = xh > W-110 ? 'end' : 'start', labX = labAnchor==='end' ? xh-8 : xh+8;
     svg += '<text x="'+labX.toFixed(1)+'" y="'+Math.max(mT+10, up3-8).toFixed(1)+'" text-anchor="'+labAnchor+'" font-size="12" font-weight="700" fill="var(--ink)">'+hzLabel(h)+'</text>';
+    // アナリスト目標株価(1年後の位置。予測期間マーカーと重ならないよう少し左)
+    if(tg){
+      var xt = xs(1)-9;
+      if(tg.low>0 && tg.high>0) svg += '<line x1="'+xt.toFixed(1)+'" x2="'+xt.toFixed(1)+'" y1="'+ys(tg.high).toFixed(1)+'" y2="'+ys(tg.low).toFixed(1)+'" stroke="var(--loss)" stroke-width="2"/>'+
+        [tg.low, tg.high].map(function(v){ return '<line x1="'+(xt-4).toFixed(1)+'" x2="'+(xt+4).toFixed(1)+'" y1="'+ys(v).toFixed(1)+'" y2="'+ys(v).toFixed(1)+'" stroke="var(--loss)" stroke-width="2"/>'; }).join('');
+      var yt = ys(tg.mean);
+      svg += '<path d="M'+xt.toFixed(1)+' '+(yt-6).toFixed(1)+'l6 6-6 6-6-6z" fill="var(--loss)" stroke="var(--surface)" stroke-width="1.5"/>';
+    }
     svg += '</svg>';
     box.innerHTML = svg;
     box._geo = { mL:mL, mR:mR, W:W, H:H, mT:mT, mB:mB, xmin:xmin, xmax:Y, xs:xs, ys:ys, p:p, hist:hist, hdates:state.dates.slice(-hist.length) };
@@ -663,8 +681,40 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
       $('stats').innerHTML = ''; $('rtable').innerHTML = '<div class="empty">現在の株価とσを入力してください。</div>'; $('htable').innerHTML = ''; $('shout').innerHTML = '';
     }
     draw();
+    renderTarget(p);
     renderBT();
     save();
+  }
+
+  /* ---------- アナリストの目標株価 ---------- */
+  var REC = { strong_buy:'強い買い', buy:'買い', hold:'中立', underperform:'やや売り', sell:'売り' };
+  // 今表示している銘柄の目標株価(取得済みで、目標株価があるときだけ)
+  function curTgt(){
+    var t = state.tgt, sel = state.sel;
+    return t && t.data && !t.data.none && sel && sel.symbol===t.symbol ? t.data : null;
+  }
+  function loadTarget(){
+    var sel = state.sel;
+    if(!sel || sel.kind!=='yahoo' || !sel.symbol){ state.tgt = null; return; }
+    if(state.tgt && state.tgt.symbol===sel.symbol) return;
+    var sym = sel.symbol;
+    state.tgt = { symbol: sym, data: null };
+    fetch('/.netlify/functions/target?symbol='+encodeURIComponent(sym)).then(function(r){ return r.json(); })
+      .then(function(j){ if(state.tgt && state.tgt.symbol===sym){ state.tgt.data = j.error ? { none:true } : j; update(); } })
+      .catch(function(){});
+  }
+  function renderTarget(p){
+    var tg = curTgt();
+    $('tgtbox').hidden = !tg || !p; $('tgtleg').hidden = !tg || !p;
+    if(!tg || !p) return;
+    var lr = Math.log(tg.mean/p.S0), z = (lr - p.m)/p.sig, prob = 1-Phi(z);
+    function tile(dt, dd, sm){ return '<div><dt>'+dt+'</dt><dd'+(sm?' class="sm"':'')+'>'+dd+'</dd></div>'; }
+    $('tgtstats').innerHTML =
+      tile('平均目標株価', fmtP(tg.mean)+' <span class="dim">'+pct(tg.mean/p.S0-1)+'</span>')+
+      tile('最低 〜 最高', (tg.low>0 && tg.high>0 ? fmtP(tg.low)+' 〜 '+fmtP(tg.high) : '—')+'<br><span class="dim">'+(tg.n ? tg.n+'人の予想' : '')+'</span>', true)+
+      tile('1年後に平均目標以上になる確率', (prob*100).toFixed(0)+'% <span class="dim">(予測の '+(z>=0?'+':'')+z.toFixed(2)+'σ)</span>')+
+      tile('推奨', (REC[tg.rec] || '—')+(tg.recMean ? ' <span class="dim">'+tg.recMean.toFixed(2)+'</span>' : ''));
+    $('tgtnote').innerHTML = 'Yahoo Finance に集計されたアナリスト予想(コンセンサス)です。目標株価はふつう12ヶ月先の水準です。確率は、このアプリの1年後の予測分布(μ '+(p.mu*100).toFixed(1)+'%、σ '+(p.sig*100).toFixed(1)+'%)で平均目標株価以上になる確率です。推奨の数値は 1 = 強い買い 〜 5 = 売り。証券会社ごとの内訳はありません。';
   }
 
   /* ---------- 予測の検証(バックテスト) ---------- */
@@ -1171,6 +1221,7 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
         (j.currency && j.currency!=='JPY' ? '、通貨: '+esc(j.currency)+'(元手は円換算せず値動きの比率だけで計算)' : '')+'<br>' + $('info').innerHTML;
       out.textContent = '';
       $('fetch').classList.remove('pending');
+      loadTarget();
       save();
       if(mqMobile.matches){ $('tk').blur(); $('p-chart').scrollIntoView({ behavior:'smooth', block:'start' }); }
     }catch(e){
@@ -1311,6 +1362,7 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
   /* ---------- 起動 ---------- */
   setSpan(2);
   var restored = load();
+  loadTarget();
   if(restored && $('data').value.trim()){
     var keep = { s0:$('s0').value, mu:$('mu').value, sig:$('sig').value };
     var parsed = parsePrices($('data').value, $('order').value);
