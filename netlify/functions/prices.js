@@ -2,11 +2,11 @@
 // GET /.netlify/functions/prices?symbol=7203.T&from=2024-10-14&to=2026-10-14
 //   symbol: Yahoo Finance のコード(株・ETF・指数 ^N225・先物 GC=F・為替 JPY=X など)
 //   fund  : 投資信託は ISIN_協会コード(例 JP90C000H1T1_0331418A)。基準価額を終値として返す
-//   from/to 省略時は直近1年。期間は最長約16年(画面の「予測の検証」で過去5年+10年分を使う)
+//   from/to 省略時は直近1年。期間は最長約20年(画面の「予測の検証」で2011年以降を使う)
 // 取得元: Yahoo Finance(非公式チャートAPI) / 投資信託協会(投信総合検索ライブラリー)
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130 Safari/537.36';
 const DAY = 86400000;
-const MAX_SPAN = 16 * 366 * DAY + 7 * DAY;
+const MAX_SPAN = 20 * 366 * DAY + 7 * DAY;
 
 // Yahoo は最近の株式分割を終値に反映していないことがある。
 // 分割日の前後で、値動きが分割比率に近い(=未調整)ときだけ、分割前の終値を比率で割る
@@ -94,7 +94,7 @@ exports.handler = async (event) => {
   const to = q.to || ymd(Date.now());
   const from = q.from || ymd(Date.parse(to) - 365 * DAY);
   if (!isYmd(from) || !isYmd(to) || from >= to) return json(400, { error: '期間の指定が不正です' });
-  if (Date.parse(to) - Date.parse(from) > MAX_SPAN) return json(400, { error: '期間は最長16年までです' });
+  if (Date.parse(to) - Date.parse(from) > MAX_SPAN) return json(400, { error: '期間は最長20年までです' });
 
   try {
     const out = fund ? await fromFund(fund, from, to) : await fromYahoo(sym, from, to);
