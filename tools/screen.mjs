@@ -1,7 +1,7 @@
 // 全上場銘柄について「1年前時点の予測から見て、今の株価が何σの位置か」を計算し screen.json に書き出す
 // GitHub Actions(.github/workflows/screen.yml)で毎日実行する。手元では: node tools/screen.mjs
 // 計算は画面の「予測の検証」と同じ考え方: 1年前より前の期間で μ・σ を推定し、1年前の株価から予測した1年後の分布と今の株価を比べる
-// あわせて直近 1/2/3/5/10 年の μ・σ を sharpe.json に書き出す(画面のシャープレシオ・ランキングで使う)
+// あわせて直近 1/2/3/5/10 年の μ・σ を sharpe.json に、アナリストの目標株価を target.json に書き出す(画面のランキングで使う)
 import { readFileSync, writeFileSync } from 'node:fs';
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130 Safari/537.36';
@@ -49,6 +49,35 @@ function adjustSplits(ts, closes, splits) {
   });
 }
 
+// アナリストの目標株価(netlify/functions/target.js と同じ取得方法)。quoteSummary は Cookie と crumb が必要
+let auth = null;
+async function getAuth() {
+  if (auth) return auth;
+  const r1 = await fetch('https://fc.yahoo.com', { headers: { 'User-Agent': UA }, redirect: 'manual' });
+  const cookie = r1.headers.getSetCookie().map((c) => c.split(';')[0]).filter(Boolean).join('; ');
+  const r2 = await fetch('https://query1.finance.yahoo.com/v1/test/getcrumb', { headers: { 'User-Agent': UA, Cookie: cookie } });
+  const crumb = (await r2.text()).trim();
+  if (!cookie || !r2.ok || !crumb || crumb.length > 40) throw new Error('crumb を取得できません');
+  return (auth = { cookie, crumb });
+}
+async function fetchTarget(sym) {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const a = await getAuth();
+    const url = 'https://query1.finance.yahoo.com/v10/finance/quoteSummary/' + encodeURIComponent(sym) + '?modules=financialData&crumb=' + encodeURIComponent(a.crumb);
+    const res = await fetch(url, { headers: { 'User-Agent': UA, Cookie: a.cookie, Accept: 'application/json' } });
+    if (res.ok) {
+      const f = ((((await res.json()).quoteSummary || {}).result || [])[0] || {}).financialData || {};
+      const v = (k) => (f[k] && typeof f[k].raw === 'number' ? f[k].raw : null);
+      return v('targetMeanPrice') > 0 ? { mean: v('targetMeanPrice'), low: v('targetLowPrice'), high: v('targetHighPrice'), n: v('numberOfAnalystOpinions') } : null;
+    }
+    if (res.status === 404) return null;
+    if (res.status === 401 || res.status === 403) auth = null;  // crumb の期限切れ
+    else if (res.status !== 429 && res.status < 500) throw new Error('HTTP ' + res.status);
+    await sleep(2000 * 2 ** attempt);
+  }
+  throw new Error('retry over');
+}
+
 function estimate(p) {
   const r = [];
   for (let i = 1; i < p.length; i++) r.push(Math.log(p[i] / p[i - 1]));
@@ -94,7 +123,9 @@ function analyze(r) {
     const e = estimate(P.slice(s));
     return e.sigma > 0 ? [rd(e.mu, 4), rd(e.sigma, 4)] : null;
   });
-  const sharpe = { price: px(P[n - 1]), sr };
+  // 直近の株式分割日(目標株価に分割前の値が混ざることがあるので target.json に残す)
+  const sp = Math.max(0, ...Object.values((r.events && r.events.splits) || {}).map((s) => s.date));
+  const sharpe = { price: px(P[n - 1]), sr, split: sp ? new Date((sp + off) * 1000).toISOString().slice(0, 10) : null };
   if (T0 < MIN_EST) return { sharpe };
   // 推定は予測時点からさらに1年前まで(10年分取得しても、以前の range=2y と同じ長さにそろえる)
   const fromEst = new Date(Date.parse(D[T0]) - 365 * DAY).toISOString().slice(0, 10);
@@ -110,8 +141,8 @@ function analyze(r) {
 }
 
 const list = JSON.parse(readFileSync('stocks-jp.json', 'utf8')).items.filter((x) => MARKETS.has(x[2]));
-const out = [], srOut = [];
-let failed = 0, next = 0, done = 0;
+const out = [], srOut = [], tgOut = [];
+let failed = 0, tgFailed = 0, next = 0, done = 0;
 async function worker() {
   while (next < list.length) {
     const [code, name, market] = list[next++];
@@ -119,6 +150,15 @@ async function worker() {
       const a = analyze(await fetchChart(code + '.T'));
       if (a && a.screen) out.push(Object.assign({ code, name, market }, a.screen));
       if (a && a.sharpe.sr.some(Boolean)) srOut.push([code, name, market, a.sharpe.price].concat(a.sharpe.sr));
+      if (a) {
+        try {
+          const t = await fetchTarget(code + '.T');
+          const px = (x) => (x > 0 ? +x.toFixed(x >= 100 ? 0 : 2) : null);
+          if (t) tgOut.push([code, name, market, a.sharpe.price, px(t.mean), px(t.low), px(t.high), t.n, a.sharpe.split]);
+        } catch (e) {
+          if (++tgFailed <= 20) console.error(code, 'target', e.message);
+        }
+      }
     } catch (e) {
       failed++;
       if (failed <= 20) console.error(code, e.message);
@@ -138,4 +178,8 @@ const asof = out.reduce((m, x) => (x.date > m ? x.date : m), '');
 writeFileSync('screen.json', JSON.stringify({ generated: new Date().toISOString(), asof, count: out.length, universe: list.length, failed, items: out }));
 // items: [コード, 名前, 市場, 株価, 期間ごとの [μ, σ] または null(periods の順)]
 writeFileSync('sharpe.json', JSON.stringify({ generated: new Date().toISOString(), asof, periods: PERIODS, items: srOut }));
+// items: [コード, 名前, 市場, 株価(終値), 平均目標株価, 最低, 最高, アナリスト数, 直近10年で最後の株式分割日 または null]
+if (tgOut.length >= 300) writeFileSync('target.json', JSON.stringify({ generated: new Date().toISOString(), asof, items: tgOut }));
+else console.error('目標株価の取得が少なすぎるため target.json は保存しません:', tgOut.length);
+console.log('targets', tgOut.length, '; failed', tgFailed);
 console.log('saved', out.length, 'items; asof', asof, '; failed', failed);

@@ -155,7 +155,7 @@ tr.clk:hover td:first-child { background:var(--field); }
   input[type=number], input[type=text], input[type=date], select, textarea { font-size:16px; }
   #tk { padding:11px 12px; }
   button { min-height:38px; font-size:14px; }
-  #spans { display:grid; grid-template-columns:repeat(5,1fr); }
+  #spans { display:grid; grid-template-columns:repeat(6,1fr); }
   #spans button { padding:4px 0; }
   .ctl { gap:10px; }
   .ctl .seg { margin-left:auto; }
@@ -194,7 +194,7 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
   * { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
   body { font-size:11pt; }
   .wrap { max-width:none; padding:0; }
-  header p, #print, .tabbar, #p-data, #p-param, #sc, #sr, .ctl, #chart + .legend + .hint, .btns, button, details.adv { display:none !important; }
+  header p, #print, .tabbar, #p-data, #p-param, #sc, #sr, #tg, .ctl, #chart + .legend + .hint, .btns, button, details.adv { display:none !important; }
   .grid { display:block; }
   .panel { border:0; border-radius:0; padding:0; margin:0 0 8mm !important; break-inside:avoid; }
   #p-note { break-inside:auto; }
@@ -389,6 +389,24 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
         <p class="hint">東証上場の全銘柄について、指定期間の日次終値から年率の μ・σ を推定し、シャープレシオ =(μ − rf)/ σ を高い順に並べています。rf は左の「安全資産の利回り」を使います。期間の途中で上場した銘柄は含みません。値動きの少ない銘柄(σ 5%未満)は売買が少なく値が動かないだけのことが多いので除いています。行を選ぶとその期間でその銘柄を読み込みます。</p>
       </section>
 
+      <section class="panel" aria-labelledby="h-tg" id="tg">
+        <h2 id="h-tg">目標株価との乖離ランキング</h2>
+        <div class="filters">
+          <label class="dim" style="margin:0">並び順
+            <select id="tg-o"><option value="up">目標より安い順</option><option value="down">目標より高い順</option></select>
+          </label>
+          <label class="dim" style="margin:0">市場
+            <select id="tg-mk"><option value="">すべて</option><option>プライム</option><option>スタンダード</option><option>グロース</option></select>
+          </label>
+          <label class="dim" style="margin:0">アナリスト
+            <select id="tg-n"><option value="1">1人以上</option><option value="3" selected>3人以上</option><option value="5">5人以上</option></select>
+          </label>
+        </div>
+        <p class="hint" id="tginfo">読み込み中…</p>
+        <div class="tw" id="tgtable"></div>
+        <p class="hint">東証上場の全銘柄のうち、Yahoo Finance にアナリストの目標株価(コンセンサス)がある銘柄について、乖離率 = 平均目標株価 ÷ 株価 − 1 を並べています。プラスは目標まで上がる余地、マイナスは目標を上回っていることを表します。予想が1〜2人だと偏りやすいので、初期表示は3人以上にしています。直近1年に株式分割した銘柄は、目標株価に分割前の値が混ざって乖離が大きく出ることがあるため除いています。GitHub Actions で平日の夕方に自動更新します。行を選ぶとその銘柄を読み込みます。</p>
+      </section>
+
       <section class="panel" aria-labelledby="h-sc" id="sc">
         <h2 id="h-sc">下がりすぎ銘柄(1年前の予測と比べて)</h2>
         <div class="filters">
@@ -425,6 +443,7 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
   <button type="button" data-go="p-chart"><svg viewBox="0 0 24 24"><path d="M3 20h18"/><path d="M4 16l5-5 4 3 7-8"/></svg>予測</button>
   <button type="button" data-go="p-bt"><svg viewBox="0 0 24 24"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9"/></svg>検証</button>
   <button type="button" data-go="sr"><svg viewBox="0 0 24 24"><path d="M5 20V12M12 20V5M19 20v-5"/></svg>ランキング</button>
+  <button type="button" data-go="tg"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/></svg>目標株価</button>
   <button type="button" data-go="sc"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/><path d="M19 15v6M16.5 18.5L19 21l2.5-2.5"/></svg>下落一覧</button>
 </nav>
 
@@ -1274,6 +1293,50 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
     var sio = new IntersectionObserver(function(es){ if(es[0].isIntersecting){ sio.disconnect(); loadSharpe(); } }, { rootMargin: '400px' });
     sio.observe($('sr'));
   } else loadSharpe();
+
+  /* ---------- 目標株価との乖離ランキング ---------- */
+  var tgr = { data: null, loading: false };
+  function loadTargets(){
+    if(tgr.loading) return;
+    tgr.loading = true;
+    fetch('target.json', { cache: 'no-cache' }).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+      .then(function(j){ tgr.data = j; renderTargets(); })
+      .catch(function(e){ $('tginfo').textContent = 'ランキングを読み込めませんでした('+e.message+')。'; });
+  }
+  function renderTargets(){
+    var j = tgr.data; if(!j) return;
+    var up = $('tg-o').value==='up', mk = $('tg-mk').value, minN = +$('tg-n').value, LIMIT = 100;
+    // 直近1年に株式分割した銘柄は、目標株価に分割前の値が混ざっていることがあるので除く
+    var cut = new Date(Date.parse(j.asof) - 365*86400000).toISOString().slice(0,10), rows = [], nSplit = 0;
+    j.items.forEach(function(x){
+      if(x[8] && x[8]>cut){ nSplit++; return; }
+      if(x[3]>0 && x[4]>0 && (x[7]||0)>=minN && (!mk || x[2]===mk))
+        rows.push({ code:x[0], name:x[1], market:x[2], price:x[3], mean:x[4], low:x[5], high:x[6], n:x[7], d:x[4]/x[3]-1 });
+    });
+    rows.sort(function(a,b){ return up ? b.d-a.d : a.d-b.d; });
+    $('tginfo').innerHTML = '<b>'+esc(j.asof)+'</b> 終値時点 ・ 対象 '+rows.length+'銘柄(上位'+Math.min(LIMIT, rows.length)+'件を表示)'+(nSplit ? ' ・ 直近1年に株式分割した'+nSplit+'銘柄は除外' : '');
+    if(!rows.length){ $('tgtable').innerHTML = '<div class="empty" style="padding:20px 0">該当する銘柄はありません。</div>'; return; }
+    $('tgtable').innerHTML = '<table><thead><tr><th>銘柄</th><th class="xs-hide">市場</th><th>株価</th><th>平均目標</th><th class="xs-hide">最低 〜 最高</th><th class="xs-hide">人数</th><th>乖離率</th></tr></thead><tbody>'+
+      rows.slice(0, LIMIT).map(function(x, i){
+        return '<tr class="clk" tabindex="0" data-code="'+esc(x.code)+'" data-name="'+esc(x.name)+'"><td style="white-space:normal;min-width:9em"><span class="dim">'+(i+1)+'.</span> '+esc(x.name)+' <span class="dim">'+esc(x.code)+'</span><span class="dim xs-only">'+esc(x.market)+' ・ '+x.n+'人</span></td>'+
+          '<td class="dim xs-hide">'+esc(x.market)+'</td><td>'+fmtP(x.price)+'</td><td>'+fmtP(x.mean)+'</td>'+
+          '<td class="dim xs-hide">'+(x.low>0 && x.high>0 ? fmtP(x.low)+' 〜 '+fmtP(x.high) : '—')+'</td><td class="dim xs-hide">'+x.n+'</td>'+
+          '<td class="'+(x.d<0?'lo':'hi')+'"><b>'+pct(x.d)+'</b></td></tr>';
+      }).join('')+'</tbody></table>';
+  }
+  function openFromTarget(tr){
+    if(state.span && state.span<2) setSpan(2);
+    pick({ kind:'yahoo', symbol: tr.getAttribute('data-code')+'.T', name: tr.getAttribute('data-name') });
+    fetchPrices();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+  $('tgtable').addEventListener('click', function(e){ var tr = e.target.closest('tr[data-code]'); if(tr) openFromTarget(tr); });
+  $('tgtable').addEventListener('keydown', function(e){ var tr = e.target.closest('tr[data-code]'); if(tr && (e.key==='Enter' || e.key===' ')){ e.preventDefault(); openFromTarget(tr); } });
+  ['tg-o','tg-mk','tg-n'].forEach(function(id){ $(id).addEventListener('change', renderTargets); });
+  if(typeof IntersectionObserver !== 'undefined'){
+    var tgio = new IntersectionObserver(function(es){ if(es[0].isIntersecting){ tgio.disconnect(); loadTargets(); } }, { rootMargin: '400px' });
+    tgio.observe($('tg'));
+  } else loadTargets();
 
   /* ---------- スマホ用の下部タブ ---------- */
   var tabs = [].slice.call(document.querySelectorAll('.tabbar button'));
