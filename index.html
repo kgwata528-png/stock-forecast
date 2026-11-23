@@ -428,7 +428,7 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
         </div>
         <p class="hint" id="peinfo">読み込み中…</p>
         <div class="tw" id="petable"></div>
-        <p class="hint">東証上場の全銘柄のうち、Yahoo Finance に来期のアナリスト予想EPS がある銘柄について、来期予想PER = 株価 ÷ 来期予想EPS を並べています。来期は今の決算期の次の期です(3月決算なら翌々年3月期)。予想EPS がマイナスの銘柄、決算通貨が円でない銘柄、直近1年に株式分割した銘柄(EPS に分割前の値が混ざることがある)は除いています。伸び率 = 来期予想EPS ÷ 実績EPS(直近12ヶ月)− 1 で、実績EPS がマイナスの銘柄では表示しません。GitHub Actions で平日の夕方に自動更新します。行を選ぶとその銘柄を読み込みます。</p>
+        <p class="hint">東証上場の全銘柄のうち、Yahoo Finance に来期のアナリスト予想EPS がある銘柄について、来期予想PER = 株価 ÷ 来期予想EPS を並べています。来期は今の決算期の次の期です(3月決算なら翌々年3月期)。実績EPS か来期予想EPS がマイナスか0の銘柄、決算通貨が円でない銘柄、直近1年に株式分割した銘柄(EPS に分割前の値が混ざることがある)は除いています。伸び率 = 来期予想EPS ÷ 実績EPS(直近12ヶ月)− 1 です。GitHub Actions で平日の夕方に自動更新します。行を選ぶとその銘柄を読み込みます。</p>
       </section>
 
       <section class="panel" aria-labelledby="h-sc" id="sc">
@@ -766,10 +766,10 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
     $('epsstats').innerHTML =
       tile('実績EPS(直近12ヶ月)', eps(d.eps))+
       tile('実績PER', per(d.eps))+
-      tile('来期予想EPS', eps(d.fwd)+(d.fwd!=null && d.eps>0 ? ' <span class="dim">'+pct(d.fwd/d.eps-1)+'</span>' : '')+
+      tile('来期予想EPS', eps(d.fwd)+(d.fwd>0 && d.eps>0 ? ' <span class="dim">'+pct(d.fwd/d.eps-1)+'</span>' : '')+
         (d.fwd!=null ? '<br><span class="dim">'+(d.fwdEnd ? esc(d.fwdEnd.slice(0,7).replace('-','年'))+'月期' : '')+(d.fwdN ? ' ・ '+d.fwdN+'人の予想' : '')+'</span>' : ''), d.fwd!=null)+
       tile('来期予想PER', per(d.fwd));
-    $('epsnote').innerHTML = 'Yahoo Finance の値です。PER = 株価('+fmtP(p.S0)+')÷ EPS。来期予想EPS はアナリスト予想の平均で、括弧内は実績EPSからの伸び率です。'+
+    $('epsnote').innerHTML = 'Yahoo Finance の値です。PER = 株価('+fmtP(p.S0)+')÷ EPS。来期予想EPS はアナリスト予想の平均で、括弧内は実績EPSからの伸び率です(どちらかがマイナスか0のときは出しません)。'+
       (d.fwd==null ? 'アナリスト予想が無い銘柄は来期予想を表示できません。' : '')+(jpy ? '' : '決算通貨が株価と異なるため PER は表示していません。')+'EPS がマイナスのときは PER を表示しません。株式分割の直後は EPS が分割前の値のままのことがあるので注意してください。';
   }
 
@@ -1397,22 +1397,23 @@ header { display:flex; align-items:flex-start; justify-content:space-between; ga
     var o = $('pe-o').value, mk = $('pe-mk').value, minN = +$('pe-n').value, LIMIT = 100, rows = [];
     // items: [コード, 名前, 市場, 株価, 実績EPS, 来期予想EPS, 来期予想PER, 予想アナリスト数, 来期の決算期末, 決算通貨, 最後の株式分割日]
     // 直近1年に株式分割した銘柄は、EPS が分割前の値のことがあるので除く
-    var cut = new Date(Date.parse(j.asof) - 365*86400000).toISOString().slice(0,10), nSplit = 0;
+    var cut = new Date(Date.parse(j.asof) - 365*86400000).toISOString().slice(0,10), nSplit = 0, nNeg = 0;
     j.items.forEach(function(x){
       if(x[10] && x[10]>cut){ nSplit++; return; }
+      // 実績EPS・来期予想EPS のどちらかがマイナスか0の銘柄は、伸び率に意味が無いので除く
+      if(!(x[4]>0 && x[5]>0)){ if(x[5]!=null) nNeg++; return; }
       if(x[6]>0 && (x[7]||0)>=minN && (!mk || x[2]===mk))
-        rows.push({ code:x[0], name:x[1], market:x[2], price:x[3], eps:x[4], fwd:x[5], per:x[6], n:x[7], end:x[8], g: x[4]>0 ? x[5]/x[4]-1 : null });
+        rows.push({ code:x[0], name:x[1], market:x[2], price:x[3], eps:x[4], fwd:x[5], per:x[6], n:x[7], end:x[8], g: x[5]/x[4]-1 });
     });
-    if(o==='grow') rows = rows.filter(function(x){ return x.g!=null; });
     rows.sort(o==='low' ? function(a,b){ return a.per-b.per; } : o==='high' ? function(a,b){ return b.per-a.per; } : function(a,b){ return b.g-a.g; });
-    $('peinfo').innerHTML = '<b>'+esc(j.asof)+'</b> 終値時点 ・ 対象 '+rows.length+'銘柄(上位'+Math.min(LIMIT, rows.length)+'件を表示)'+(nSplit ? ' ・ 直近1年に株式分割した'+nSplit+'銘柄は除外' : '');
+    $('peinfo').innerHTML = '<b>'+esc(j.asof)+'</b> 終値時点 ・ 対象 '+rows.length+'銘柄(上位'+Math.min(LIMIT, rows.length)+'件を表示)'+(nSplit ? ' ・ 直近1年に株式分割した'+nSplit+'銘柄は除外' : '')+(nNeg ? ' ・ EPS がマイナスか0の'+nNeg+'銘柄は除外' : '');
     if(!rows.length){ $('petable').innerHTML = '<div class="empty" style="padding:20px 0">該当する銘柄はありません。</div>'; return; }
-    function e2(v){ return v==null ? '—' : nf2.format(v); }
+    function e2(v){ return nf2.format(v); }
     $('petable').innerHTML = '<table><thead><tr><th>銘柄</th><th class="xs-hide">市場</th><th>株価</th><th class="xs-hide">実績EPS</th><th>来期予想EPS</th><th class="xs-hide">伸び率</th><th class="xs-hide">人数</th><th>来期予想PER</th></tr></thead><tbody>'+
       rows.slice(0, LIMIT).map(function(x, i){
-        return '<tr class="clk" tabindex="0" data-code="'+esc(x.code)+'" data-name="'+esc(x.name)+'"><td style="white-space:normal;min-width:9em"><span class="dim">'+(i+1)+'.</span> '+esc(x.name)+' <span class="dim">'+esc(x.code)+'</span><span class="dim xs-only">'+esc(x.market)+' ・ '+x.n+'人'+(x.g!=null ? ' ・ 伸び '+pct(x.g) : '')+'</span></td>'+
+        return '<tr class="clk" tabindex="0" data-code="'+esc(x.code)+'" data-name="'+esc(x.name)+'"><td style="white-space:normal;min-width:9em"><span class="dim">'+(i+1)+'.</span> '+esc(x.name)+' <span class="dim">'+esc(x.code)+'</span><span class="dim xs-only">'+esc(x.market)+' ・ '+x.n+'人 ・ 伸び '+pct(x.g)+'</span></td>'+
           '<td class="dim xs-hide">'+esc(x.market)+'</td><td>'+fmtP(x.price)+'</td><td class="dim xs-hide">'+e2(x.eps)+'</td><td>'+e2(x.fwd)+'</td>'+
-          '<td class="xs-hide '+(x.g==null ? 'dim' : x.g<0 ? 'lo' : 'hi')+'">'+(x.g==null ? '—' : pct(x.g))+'</td><td class="dim xs-hide">'+x.n+'</td>'+
+          '<td class="xs-hide '+(x.g<0 ? 'lo' : 'hi')+'">'+pct(x.g)+'</td><td class="dim xs-hide">'+x.n+'</td>'+
           '<td><b>'+x.per.toFixed(1)+'倍</b></td></tr>';
       }).join('')+'</tbody></table>';
   }
