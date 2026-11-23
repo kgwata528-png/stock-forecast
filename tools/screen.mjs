@@ -1,7 +1,8 @@
 // 全上場銘柄について「1年前時点の予測から見て、今の株価が何σの位置か」を計算し screen.json に書き出す
 // GitHub Actions(.github/workflows/screen.yml)で毎日実行する。手元では: node tools/screen.mjs
 // 計算は画面の「予測の検証」と同じ考え方: 1年前より前の期間で μ・σ を推定し、1年前の株価から予測した1年後の分布と今の株価を比べる
-// あわせて直近 1/2/3/5/10 年の μ・σ を sharpe.json に、アナリストの目標株価を target.json に書き出す(画面のランキングで使う)
+// あわせて直近 1/2/3/5/10 年の μ・σ を sharpe.json に、アナリストの目標株価を target.json に、
+// 実績EPS・来期予想EPS・来期予想PER を eps.json に書き出す
 import { readFileSync, writeFileSync } from 'node:fs';
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130 Safari/537.36';
@@ -60,15 +61,23 @@ async function getAuth() {
   if (!cookie || !r2.ok || !crumb || crumb.length > 40) throw new Error('crumb を取得できません');
   return (auth = { cookie, crumb });
 }
+// 目標株価と同じリクエストで、実績EPS(直近12か月)と来期(+1y)の予想EPS も取る
 async function fetchTarget(sym) {
   for (let attempt = 0; attempt < 5; attempt++) {
     const a = await getAuth();
-    const url = 'https://query1.finance.yahoo.com/v10/finance/quoteSummary/' + encodeURIComponent(sym) + '?modules=financialData&crumb=' + encodeURIComponent(a.crumb);
+    const url = 'https://query1.finance.yahoo.com/v10/finance/quoteSummary/' + encodeURIComponent(sym) + '?modules=financialData,defaultKeyStatistics,earningsTrend&crumb=' + encodeURIComponent(a.crumb);
     const res = await fetch(url, { headers: { 'User-Agent': UA, Cookie: a.cookie, Accept: 'application/json' } });
     if (res.ok) {
-      const f = ((((await res.json()).quoteSummary || {}).result || [])[0] || {}).financialData || {};
-      const v = (k) => (f[k] && typeof f[k].raw === 'number' ? f[k].raw : null);
-      return v('targetMeanPrice') > 0 ? { mean: v('targetMeanPrice'), low: v('targetLowPrice'), high: v('targetHighPrice'), n: v('numberOfAnalystOpinions') } : null;
+      const r = (((await res.json()).quoteSummary || {}).result || [])[0] || {};
+      const f = r.financialData || {}, ks = r.defaultKeyStatistics || {};
+      const v = (o, k) => (o && o[k] && typeof o[k].raw === 'number' ? o[k].raw : null);
+      const next = ((r.earningsTrend || {}).trend || []).find((t) => t.period === '+1y') || {};
+      return {
+        target: v(f, 'targetMeanPrice') > 0 ? { mean: v(f, 'targetMeanPrice'), low: v(f, 'targetLowPrice'), high: v(f, 'targetHighPrice'), n: v(f, 'numberOfAnalystOpinions') } : null,
+        eps: v(ks, 'trailingEps'),
+        fwd: v(next.earningsEstimate, 'avg'), fwdN: v(next.earningsEstimate, 'numberOfAnalysts'), fwdEnd: next.endDate || null,
+        currency: f.financialCurrency || null,
+      };
     }
     if (res.status === 404) return null;
     if (res.status === 401 || res.status === 403) auth = null;  // crumb の期限切れ
@@ -141,7 +150,7 @@ function analyze(r) {
 }
 
 const list = JSON.parse(readFileSync('stocks-jp.json', 'utf8')).items.filter((x) => MARKETS.has(x[2]));
-const out = [], srOut = [], tgOut = [];
+const out = [], srOut = [], tgOut = [], epsOut = [];
 let failed = 0, tgFailed = 0, next = 0, done = 0;
 async function worker() {
   while (next < list.length) {
@@ -152,9 +161,15 @@ async function worker() {
       if (a && a.sharpe.sr.some(Boolean)) srOut.push([code, name, market, a.sharpe.price].concat(a.sharpe.sr));
       if (a) {
         try {
-          const t = await fetchTarget(code + '.T');
+          const q = await fetchTarget(code + '.T'), t = q && q.target, price = a.sharpe.price;
           const px = (x) => (x > 0 ? +x.toFixed(x >= 100 ? 0 : 2) : null);
-          if (t) tgOut.push([code, name, market, a.sharpe.price, px(t.mean), px(t.low), px(t.high), t.n, a.sharpe.split]);
+          if (t) tgOut.push([code, name, market, price, px(t.mean), px(t.low), px(t.high), t.n, a.sharpe.split]);
+          if (q && (q.eps != null || q.fwd != null)) {
+            const e2 = (x) => (x == null ? null : +x.toFixed(2));
+            // PER は決算通貨が円のときだけ(外貨建て決算の銘柄は株価と単位が合わない)
+            const per = q.fwd > 0 && (q.currency || 'JPY') === 'JPY' ? +(price / q.fwd).toFixed(2) : null;
+            epsOut.push([code, name, market, price, e2(q.eps), e2(q.fwd), per, q.fwdN, q.fwdEnd, q.currency, a.sharpe.split]);
+          }
         } catch (e) {
           if (++tgFailed <= 20) console.error(code, 'target', e.message);
         }
@@ -181,5 +196,9 @@ writeFileSync('sharpe.json', JSON.stringify({ generated: new Date().toISOString(
 // items: [コード, 名前, 市場, 株価(終値), 平均目標株価, 最低, 最高, アナリスト数, 直近10年で最後の株式分割日 または null]
 if (tgOut.length >= 300) writeFileSync('target.json', JSON.stringify({ generated: new Date().toISOString(), asof, items: tgOut }));
 else console.error('目標株価の取得が少なすぎるため target.json は保存しません:', tgOut.length);
-console.log('targets', tgOut.length, '; failed', tgFailed);
+// items: [コード, 名前, 市場, 株価(終値), 実績EPS(直近12か月), 来期予想EPS(アナリスト平均), 来期予想PER, 予想アナリスト数, 来期の決算期末, 決算通貨, 直近10年で最後の株式分割日]
+// EPS は決算通貨建て。値が無い項目は null。分割直後は EPS が分割前の値のことがある
+if (epsOut.length >= 300) writeFileSync('eps.json', JSON.stringify({ generated: new Date().toISOString(), asof, items: epsOut }));
+else console.error('EPS の取得が少なすぎるため eps.json は保存しません:', epsOut.length);
+console.log('targets', tgOut.length, '; eps', epsOut.length, '; failed', tgFailed);
 console.log('saved', out.length, 'items; asof', asof, '; failed', failed);
